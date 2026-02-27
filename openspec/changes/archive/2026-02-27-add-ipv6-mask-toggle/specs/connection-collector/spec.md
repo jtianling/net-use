@@ -1,25 +1,4 @@
-# Connection Collector
-
-## Purpose
-
-Collect and deduplicate remote IP addresses from monitored processes by inspecting their socket file descriptors, aggregating IPv4 addresses to /24 subnets and recording full IPv6 addresses.
-
-## Requirements
-
-### Requirement: Collect remote IP addresses from socket file descriptors
-The system SHALL use `proc_pidfdinfo` to enumerate socket file descriptors of each monitored process and extract the remote IP address from TCP and UDP connections.
-
-#### Scenario: Process has active TCP connections
-- **WHEN** a monitored process has open TCP sockets connected to remote hosts
-- **THEN** system extracts the remote IP address from each socket
-
-#### Scenario: Process has active UDP sockets
-- **WHEN** a monitored process has UDP sockets with known remote addresses
-- **THEN** system extracts the remote IP address from each socket
-
-#### Scenario: Process has no network connections
-- **WHEN** a monitored process has no socket file descriptors
-- **THEN** system continues polling without producing output
+## MODIFIED Requirements
 
 ### Requirement: Aggregate IPv4 addresses to /24 subnets
 The system SHALL mask IPv4 addresses by zeroing the last octet and formatting as `x.x.x.0/24` for canonical output and deduplication, while retaining full IPv4 addresses for raw-display state.
@@ -50,21 +29,3 @@ The system SHALL normalize IPv6 addresses to `/64` for canonical output and dedu
 #### Scenario: Distinct raw IPv6 addresses under the same /64
 - **WHEN** system encounters `2607:6bc0::10` and later `2607:6bc0::11`, and both are previously unseen full addresses
 - **THEN** system keeps both full addresses available for raw-address display mode
-
-### Requirement: Ignore loopback and link-local addresses
-The system SHALL exclude loopback (127.0.0.0/8, ::1) and link-local (169.254.0.0/16, fe80::/10) addresses from output.
-
-#### Scenario: Loopback connection detected
-- **WHEN** a socket's remote address is 127.0.0.1 or ::1
-- **THEN** system does not record it
-
-#### Scenario: Link-local connection detected
-- **WHEN** a socket's remote address is in 169.254.0.0/16 or fe80::/10
-- **THEN** system does not record it
-
-### Requirement: Polling interval
-The system SHALL poll at approximately 200ms intervals.
-
-#### Scenario: Continuous monitoring
-- **WHEN** monitoring is active
-- **THEN** system completes a full poll cycle (process tree update + socket enumeration) approximately every 200ms

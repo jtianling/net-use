@@ -108,8 +108,15 @@ impl MonitorEngine {
         for &pid in &self.tracked_pids {
             let addrs = connection::collect_remote_addrs(pid);
             for addr in addrs {
-                if let Some(discovered) = self.aggregator.add(addr) {
+                let result = self.aggregator.add(addr);
+                if let Some(discovered) = result.discovered {
                     let _ = tx.send(MonitorEvent::NewAddress(discovered));
+                }
+                if let Some(raw_ipv4) = result.raw_ipv4 {
+                    let _ = tx.send(MonitorEvent::NewIpv4Raw(raw_ipv4));
+                }
+                if let Some(raw_ipv6) = result.raw_ipv6 {
+                    let _ = tx.send(MonitorEvent::NewIpv6Raw(raw_ipv6));
                 }
             }
         }

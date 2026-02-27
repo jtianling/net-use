@@ -103,8 +103,16 @@ async fn run_cli_mode(target: MonitorTarget) -> Result<()> {
     loop {
         tokio::select! {
             Some(event) = rx.recv() => {
-                if let MonitorEvent::NewAddress(addr) = event {
-                    println!("{addr}");
+                match event {
+                    MonitorEvent::NewAddress(addr) => {
+                        println!("{addr}");
+                    }
+                    MonitorEvent::NewIpv4Raw(_) => {}
+                    MonitorEvent::NewIpv6Raw(_) => {}
+                    MonitorEvent::ProcessAdded(_)
+                    | MonitorEvent::ProcessRemoved(_)
+                    | MonitorEvent::TargetLost
+                    | MonitorEvent::TargetFound => {}
                 }
             }
             _ = &mut ctrl_c => {
@@ -143,7 +151,13 @@ async fn tui_main_loop(
         None => select_app(terminal)?,
     };
 
-    let mut preserved: Option<(MonitorTarget, Vec<String>, Vec<String>)> = None;
+    let mut preserved: Option<(
+        MonitorTarget,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+    )> = None;
 
     loop {
         let (tx, mut rx) = mpsc::unbounded_channel::<MonitorEvent>();
@@ -155,18 +169,21 @@ async fn tui_main_loop(
         let app_info = target_to_app_info(&target);
         let mut view = MonitorView::new(app_info);
 
-        if let Some((ref prev_target, ref ipv4, ref ipv6)) = preserved
+        if let Some((ref prev_target, ref ipv4_masked, ref ipv4_raw, ref ipv6_masked, ref ipv6_raw)) =
+            preserved
             && *prev_target == target
         {
-            view.restore_data(ipv4, ipv6);
+            view.restore_data(ipv4_masked, ipv4_raw, ipv6_masked, ipv6_raw);
         }
 
         let action = view.run(terminal, &mut rx)?;
 
         preserved = Some((
             target.clone(),
-            view.ipv4_data().to_vec(),
-            view.ipv6_data().to_vec(),
+            view.ipv4_masked_data().to_vec(),
+            view.ipv4_raw_data().to_vec(),
+            view.ipv6_masked_data().to_vec(),
+            view.ipv6_raw_data().to_vec(),
         ));
 
         let _ = shutdown_tx.send(true);

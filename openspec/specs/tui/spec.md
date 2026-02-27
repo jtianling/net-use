@@ -22,15 +22,19 @@ The system SHALL present a TUI screen listing all discovered apps (running and i
 - **THEN** system transitions to the monitoring screen and begins monitoring the selected app
 
 ### Requirement: Monitoring screen
-The system SHALL display real-time monitoring status including tracked processes and discovered IP subnets/addresses.
+The system SHALL display real-time monitoring status including tracked processes, discovered IPv4 and IPv6 addresses in a switchable display mode.
 
 #### Scenario: Monitoring an active app
 - **WHEN** monitoring is active
-- **THEN** screen shows: target app name and Bundle ID, monitoring status and uptime, list of tracked PIDs with process names, list of discovered IPv4 subnets (/24), list of discovered IPv6 addresses
+- **THEN** screen shows: target app name and Bundle ID, monitoring status and uptime, list of tracked PIDs with process names, list of discovered IPv4 subnets (/24), list of discovered IPv6 subnets (/64), with masked mode enabled by default
 
 #### Scenario: New IP subnet discovered
-- **WHEN** a new IPv4 subnet or IPv6 address is discovered
+- **WHEN** a new IPv4 subnet or IPv6 `/64` subnet is discovered
 - **THEN** it appears in the list immediately on the next render cycle
+
+#### Scenario: User toggles address display mode
+- **WHEN** user presses `S` on the monitoring screen
+- **THEN** system toggles both IPv4 and IPv6 lists between masked and raw full-address display without losing collected data
 
 ### Requirement: Stability indicator
 The system SHALL display the elapsed time since the last new IP was discovered, helping the user judge when the whitelist is complete.
@@ -44,14 +48,14 @@ The system SHALL allow the user to export the current IP list to a file as plain
 
 #### Scenario: User presses Export key
 - **WHEN** user presses the Export hotkey (E)
-- **THEN** system writes all discovered subnets/addresses to a text file (one per line) and displays the output file path
+- **THEN** system writes all discovered IPv4 subnets and canonical IPv6 `/64` entries to a text file (one per line) and displays the output file path
 
 ### Requirement: Copy to clipboard
 The system SHALL allow the user to copy the current IP list to the system clipboard.
 
 #### Scenario: User presses Copy key
 - **WHEN** user presses the Copy hotkey (C)
-- **THEN** system copies all discovered subnets/addresses (one per line) to the macOS clipboard
+- **THEN** system copies all discovered IPv4 subnets and canonical IPv6 `/64` entries (one per line) to the macOS clipboard
 
 ### Requirement: Navigation between screens
 The system SHALL allow the user to return to the app selection screen from the monitoring screen.

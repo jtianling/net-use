@@ -15,7 +15,7 @@ The system SHALL support a `--no-tui` flag that outputs discovered IPs to stdout
 
 #### Scenario: New IPv6 address discovered in no-tui mode
 - **WHEN** `--no-tui` is active and a new IPv6 address is discovered
-- **THEN** system prints the full IPv6 address to stdout immediately, one line per address
+- **THEN** system prints the canonical IPv6 `/64` subnet format (for example `2607:6bc0::/64`) to stdout immediately, one line per subnet
 
 #### Scenario: Duplicate IP in no-tui mode
 - **WHEN** an already-recorded subnet or address is encountered again

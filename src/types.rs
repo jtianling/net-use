@@ -28,7 +28,7 @@ pub enum MonitorTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DiscoveredAddress {
     Ipv4Subnet(Ipv4Addr),
-    Ipv6Full(Ipv6Addr),
+    Ipv6Subnet64(Ipv6Addr),
 }
 
 impl fmt::Display for DiscoveredAddress {
@@ -38,7 +38,7 @@ impl fmt::Display for DiscoveredAddress {
                 let octets = addr.octets();
                 write!(f, "{}.{}.{}.0/24", octets[0], octets[1], octets[2])
             }
-            DiscoveredAddress::Ipv6Full(addr) => write!(f, "{addr}"),
+            DiscoveredAddress::Ipv6Subnet64(addr) => write!(f, "{addr}/64"),
         }
     }
 }
@@ -50,13 +50,25 @@ impl DiscoveredAddress {
     }
 
     pub fn from_ipv6(addr: Ipv6Addr) -> Self {
-        DiscoveredAddress::Ipv6Full(addr)
+        let segments = addr.segments();
+        DiscoveredAddress::Ipv6Subnet64(Ipv6Addr::new(
+            segments[0],
+            segments[1],
+            segments[2],
+            segments[3],
+            0,
+            0,
+            0,
+            0,
+        ))
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum MonitorEvent {
     NewAddress(DiscoveredAddress),
+    NewIpv4Raw(Ipv4Addr),
+    NewIpv6Raw(Ipv6Addr),
     ProcessAdded(ProcessInfo),
     ProcessRemoved(i32),
     TargetLost,
@@ -71,4 +83,23 @@ pub enum AppError {
     BundleNotFound(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use super::DiscoveredAddress;
+
+    #[test]
+    fn test_ipv4_display_uses_24_mask() {
+        let addr = DiscoveredAddress::from_ipv4(Ipv4Addr::new(142, 250, 80, 37));
+        assert_eq!(addr.to_string(), "142.250.80.0/24");
+    }
+
+    #[test]
+    fn test_ipv6_display_uses_64_mask() {
+        let addr = DiscoveredAddress::from_ipv6("2607:6bc0::10".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(addr.to_string(), "2607:6bc0::/64");
+    }
 }
