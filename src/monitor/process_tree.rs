@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::mem;
+use std::process::Command;
 
 use anyhow::Result;
 
@@ -96,7 +97,26 @@ pub fn collect_descendants(root_pid: i32) -> HashSet<i32> {
 
 pub fn get_process_info(pid: i32) -> Option<ProcessInfo> {
     let name = get_pid_name(pid)?;
-    Some(ProcessInfo { pid, name })
+    let command = get_pid_command(pid);
+    Some(ProcessInfo { pid, name, command })
+}
+
+pub fn get_pid_command(pid: i32) -> Option<String> {
+    let pid_string = pid.to_string();
+    let output = Command::new("ps")
+        .args(["-p", pid_string.as_str(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if command.is_empty() {
+        None
+    } else {
+        Some(command)
+    }
 }
 
 pub fn find_pids_by_name(name: &str) -> Result<Vec<i32>> {

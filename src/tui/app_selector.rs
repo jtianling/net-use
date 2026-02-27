@@ -44,6 +44,11 @@ impl AppSelector {
                 if query.is_empty() {
                     return true;
                 }
+
+                let pid_matches = app
+                    .pid
+                    .map(|pid| pid.to_string().contains(&query))
+                    .unwrap_or(false);
                 app.display_name.to_lowercase().contains(&query)
                     || app
                         .bundle_id
@@ -51,6 +56,7 @@ impl AppSelector {
                         .unwrap_or("")
                         .to_lowercase()
                         .contains(&query)
+                    || pid_matches
             })
             .map(|(i, _)| i)
             .collect();
@@ -59,6 +65,15 @@ impl AppSelector {
             self.list_state.select(None);
         } else {
             self.list_state.select(Some(0));
+        }
+    }
+
+    fn source_label(app: &AppInfo) -> &'static str {
+        match (app.pid.is_some(), app.bundle_id.is_some()) {
+            (true, true) => "GUI",
+            (true, false) => "CLI",
+            (false, true) => "APP",
+            (false, false) => "UNK",
         }
     }
 
@@ -145,9 +160,13 @@ impl AppSelector {
                 };
 
                 let name = Span::styled(&app.display_name, Style::default().fg(Color::White));
+                let source = Span::styled(
+                    format!(" [{}]", Self::source_label(app)),
+                    Style::default().fg(Color::Yellow),
+                );
 
                 let bundle = Span::styled(
-                    format!("  {}", app.bundle_id.as_deref().unwrap_or("")),
+                    format!("  {}", app.bundle_id.as_deref().unwrap_or("--")),
                     Style::default().fg(Color::DarkGray),
                 );
 
@@ -158,7 +177,7 @@ impl AppSelector {
                     None => Span::raw(""),
                 };
 
-                ListItem::new(Line::from(vec![status, name, bundle, pid_text]))
+                ListItem::new(Line::from(vec![status, name, source, bundle, pid_text]))
             })
             .collect();
 

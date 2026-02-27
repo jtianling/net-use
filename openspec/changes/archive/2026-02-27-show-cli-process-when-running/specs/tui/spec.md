@@ -1,10 +1,4 @@
-# TUI
-
-## Purpose
-
-Provide an interactive terminal user interface for app selection, real-time monitoring of network connections, and export of discovered IP addresses.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: App selection screen
 The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support.
@@ -43,38 +37,3 @@ The system SHALL display real-time monitoring status including tracked processes
 #### Scenario: Command summary unavailable for a tracked process
 - **WHEN** command line metadata cannot be retrieved for a tracked PID
 - **THEN** screen still shows PID and process name for that process without failing the render cycle
-
-### Requirement: Stability indicator
-The system SHALL display the elapsed time since the last new IP was discovered, helping the user judge when the whitelist is complete.
-
-#### Scenario: No new IPs for extended period
-- **WHEN** 10 minutes have passed with no new IPs discovered
-- **THEN** the status bar shows "No new IPs for 10 min" and the timestamp of the last discovery
-
-### Requirement: Export functionality
-The system SHALL allow the user to export the current IP list to a file as plain text.
-
-#### Scenario: User presses Export key
-- **WHEN** user presses the Export hotkey (E)
-- **THEN** system writes all discovered IPv4 subnets and canonical IPv6 `/64` entries to a text file (one per line) and displays the output file path
-
-### Requirement: Copy to clipboard
-The system SHALL allow the user to copy the current IP list to the system clipboard.
-
-#### Scenario: User presses Copy key
-- **WHEN** user presses the Copy hotkey (C)
-- **THEN** system copies all discovered IPv4 subnets and canonical IPv6 `/64` entries (one per line) to the macOS clipboard
-
-### Requirement: Navigation between screens
-The system SHALL allow the user to return to the app selection screen from the monitoring screen.
-
-#### Scenario: User presses Escape during monitoring
-- **WHEN** user presses Esc on the monitoring screen
-- **THEN** system stops monitoring, preserves collected data, and returns to the app selection screen
-
-### Requirement: Quit
-The system SHALL exit cleanly when the user presses the quit key.
-
-#### Scenario: User presses Quit key
-- **WHEN** user presses Q
-- **THEN** system stops monitoring, restores terminal state, and exits

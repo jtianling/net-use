@@ -15,6 +15,8 @@ use tokio::sync::mpsc;
 use crate::tui::event::{AppEvent, is_quit, poll_event};
 use crate::types::{AppInfo, DiscoveredAddress, MonitorEvent, ProcessInfo};
 
+const MAX_COMMAND_SUMMARY_CHARS: usize = 48;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AddressDisplayMode {
     Masked,
@@ -275,13 +277,10 @@ impl MonitorView {
             .iter()
             .take(4)
             .map(|proc_info| {
-                ListItem::new(Line::from(vec![
-                    Span::styled(
-                        format!("PID {:<6}", proc_info.pid),
-                        Style::default().fg(Color::Cyan),
-                    ),
-                    Span::styled(&proc_info.name, Style::default().fg(Color::White)),
-                ]))
+                ListItem::new(Span::styled(
+                    format_process_summary(proc_info),
+                    Style::default().fg(Color::White),
+                ))
             })
             .collect();
 
@@ -471,13 +470,37 @@ fn chrono_timestamp() -> String {
     format!("{}", now.as_secs())
 }
 
+fn format_process_summary(proc_info: &ProcessInfo) -> String {
+    let head = format!("PID {:<6} {}", proc_info.pid, proc_info.name);
+    match proc_info.command.as_ref() {
+        Some(command) if !command.is_empty() => {
+            let summary = summarize_command(command, MAX_COMMAND_SUMMARY_CHARS);
+            format!("{head}  {summary}")
+        }
+        _ => head,
+    }
+}
+
+fn summarize_command(command: &str, max_chars: usize) -> String {
+    let normalized = command.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+
+    let mut shortened = normalized.chars().take(max_chars).collect::<String>();
+    shortened.push_str("...");
+    shortened
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     use crate::types::{DiscoveredAddress, MonitorEvent};
 
-    use super::{AddressDisplayMode, AppInfo, MonitorView};
+    use crate::types::ProcessInfo;
+
+    use super::{AddressDisplayMode, AppInfo, MonitorView, format_process_summary};
 
     fn test_app_info() -> AppInfo {
         AppInfo {
@@ -539,5 +562,33 @@ mod tests {
         assert_eq!(view.ipv4_raw_data().len(), 2);
         assert_eq!(view.ipv6_masked_data(), &["2607:6bc0::/64"]);
         assert_eq!(view.ipv6_raw_data().len(), 2);
+    }
+
+    #[test]
+    fn test_format_process_summary_with_command() {
+        let process = ProcessInfo {
+            pid: 123,
+            name: "python".to_string(),
+            command: Some("python worker.py --queue high-priority".to_string()),
+        };
+
+        let summary = format_process_summary(&process);
+
+        assert!(summary.contains("PID 123"));
+        assert!(summary.contains("python"));
+        assert!(summary.contains("worker.py"));
+    }
+
+    #[test]
+    fn test_format_process_summary_without_command() {
+        let process = ProcessInfo {
+            pid: 456,
+            name: "curl".to_string(),
+            command: None,
+        };
+
+        let summary = format_process_summary(&process);
+
+        assert_eq!(summary, "PID 456    curl");
     }
 }

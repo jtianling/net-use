@@ -16,6 +16,7 @@ pub struct AppInfo {
 pub struct ProcessInfo {
     pub pid: i32,
     pub name: String,
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
