@@ -13,6 +13,6 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Manually validate monitor screen order toggle (`O`) with mixed IPv4 values and confirm discovery-time mode still preserves arrival order.
-- [ ] 3.2 Verify raw and masked display modes (`S`) both apply the updated IPv4 numeric sorted mode correctly.
+- [x] 3.1 Manually validate monitor screen order toggle (`O`) with mixed IPv4 values and confirm discovery-time mode still preserves arrival order.
+- [x] 3.2 Verify raw and masked display modes (`S`) both apply the updated IPv4 numeric sorted mode correctly.
 - [x] 3.3 Update change notes/comments in code where needed to document IPv4 numeric ordering intent.

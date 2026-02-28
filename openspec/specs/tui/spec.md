@@ -50,7 +50,7 @@ The system SHALL display real-time monitoring status including tracked processes
 
 #### Scenario: User toggles address order mode
 - **WHEN** user presses `O` on the monitoring screen
-- **THEN** system toggles both IPv4 and IPv6 lists between discovery-time order and alphabetical order without losing collected data
+- **THEN** system toggles address lists between discovery-time order and deterministic sorted order, where IPv4 entries are sorted by octet numeric value (for example `9.0.0.0` before `100.0.0.0`) and IPv6 entries are sorted alphabetically, without losing collected data
 
 #### Scenario: Command summary unavailable for a tracked process
 - **WHEN** command line metadata cannot be retrieved for a tracked PID
