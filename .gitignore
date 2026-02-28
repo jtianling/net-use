@@ -1,6 +1,8 @@
 /target
 .claude/
 .agents/
-.codex/
+.codex/*
 AGENTS.md
 .net-use-address-history.json
+
+!.codex/skills/
