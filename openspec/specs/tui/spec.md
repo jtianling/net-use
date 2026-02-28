@@ -30,7 +30,7 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 - **THEN** system restores that target's previously discovered IPv4/IPv6 masked and raw address lists before appending newly collected results
 
 ### Requirement: Monitoring screen
-The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes.
+The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible.
 
 #### Scenario: Monitoring an active app
 - **WHEN** monitoring is active
@@ -51,6 +51,34 @@ The system SHALL display real-time monitoring status including tracked processes
 #### Scenario: Command summary unavailable for a tracked process
 - **WHEN** command line metadata cannot be retrieved for a tracked PID
 - **THEN** screen still shows PID and process name for that process without failing the render cycle
+
+#### Scenario: Address list exceeds viewport height
+- **WHEN** IPv4 and IPv6 entries require more rows than the address panel can display
+- **THEN** system renders a scroll window of the address rows and displays the current visible range relative to total rows
+
+#### Scenario: User scrolls downward through overflowed IPv4 addresses
+- **WHEN** user presses `Down` while IPv4 overflow exists
+- **THEN** system increases the IPv4 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: User scrolls downward through overflowed IPv6 addresses
+- **WHEN** user presses `j` or `J` while IPv6 overflow exists
+- **THEN** system increases the IPv6 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: User scrolls upward through overflowed IPv4 addresses
+- **WHEN** user presses `Up` while IPv4 overflow exists
+- **THEN** system decreases the IPv4 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: User scrolls upward through overflowed IPv6 addresses
+- **WHEN** user presses `k` or `K` while IPv6 overflow exists
+- **THEN** system decreases the IPv6 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: Scroll request exceeds bounds
+- **WHEN** user scrolls above the first row or below the last row
+- **THEN** system clamps the offset to valid bounds and keeps render stable without errors
+
+#### Scenario: Terminal size or data size changes while scrolled
+- **WHEN** terminal resize or list-size change makes the current offset invalid
+- **THEN** system recomputes viewport capacity and clamps offset so the screen continues rendering valid rows
 
 ### Requirement: Stability indicator
 The system SHALL display the elapsed time since the last new IP was discovered, helping the user judge when the whitelist is complete.

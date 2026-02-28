@@ -23,13 +23,21 @@ The system SHALL display real-time monitoring status including tracked processes
 - **WHEN** IPv4 and IPv6 entries require more rows than the address panel can display
 - **THEN** system renders a scroll window of the address rows and displays the current visible range relative to total rows
 
-#### Scenario: User scrolls downward through overflowed addresses
-- **WHEN** user presses a downward scroll key (`Down`, `j`, `PageDown`, or `Space`) while overflow exists
-- **THEN** system increases the address-list offset within bounds and updates visible rows on the next render cycle
+#### Scenario: User scrolls downward through overflowed IPv4 addresses
+- **WHEN** user presses `Down` while IPv4 overflow exists
+- **THEN** system increases the IPv4 address-list offset within bounds and updates visible rows on the next render cycle
 
-#### Scenario: User scrolls upward through overflowed addresses
-- **WHEN** user presses an upward scroll key (`Up`, `k`, or `PageUp`) while overflow exists
-- **THEN** system decreases the address-list offset within bounds and updates visible rows on the next render cycle
+#### Scenario: User scrolls downward through overflowed IPv6 addresses
+- **WHEN** user presses `j` or `J` while IPv6 overflow exists
+- **THEN** system increases the IPv6 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: User scrolls upward through overflowed IPv4 addresses
+- **WHEN** user presses `Up` while IPv4 overflow exists
+- **THEN** system decreases the IPv4 address-list offset within bounds and updates visible rows on the next render cycle
+
+#### Scenario: User scrolls upward through overflowed IPv6 addresses
+- **WHEN** user presses `k` or `K` while IPv6 overflow exists
+- **THEN** system decreases the IPv6 address-list offset within bounds and updates visible rows on the next render cycle
 
 #### Scenario: Scroll request exceeds bounds
 - **WHEN** user scrolls above the first row or below the last row

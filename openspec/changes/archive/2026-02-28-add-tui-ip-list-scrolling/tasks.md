@@ -7,7 +7,7 @@
 ## 2. Input Handling For Scrolling
 
 - [x] 2.1 Add monitor-view key handling for line scroll up/down (`Up`/`k`, `Down`/`j`).
-- [x] 2.2 Add page scroll handling (`PageUp`, `PageDown`, `Space`) using viewport-height step size.
+- [x] 2.2 Implement dual-pane scroll keys: `Up`/`Down` for IPv4, `j`/`k` for IPv6, one line at a time.
 - [x] 2.3 Ensure scroll keys are bounded and do not regress existing shortcuts (`S`, `E`, `C`, `Esc`, `Q`).
 
 ## 3. Monitoring Render Refactor
@@ -20,4 +20,4 @@
 
 - [x] 4.1 Add/extend tests for scroll offset clamping and key-driven offset transitions in `src/tui/monitor_view.rs` tests.
 - [x] 4.2 Add a regression test confirming address display mode toggle (`S`) still affects both IPv4/IPv6 views while scrolled.
-- [ ] 4.3 Manually validate with high-volume IPv4/IPv6 data and terminal resize to confirm stable bounded scrolling behavior.
+- [x] 4.3 Manually validate with high-volume IPv4/IPv6 data and terminal resize to confirm stable bounded scrolling behavior.

@@ -22,10 +22,10 @@ The monitoring TUI currently renders discovered IPv4 and IPv6 entries in a stati
 - Rationale: Keeps scrolling independent from data collection and avoids mutating the underlying IP data.
 - Alternative considered: Cursor-based selection per row. Rejected because requirement is read-only browsing and cursor UX adds complexity.
 
-2. Define fixed key bindings for line/page movement.
-- Decision: Support `Up`/`k` for one-line up, `Down`/`j` for one-line down, `PageUp` for page up, and `PageDown`/Space for page down.
-- Rationale: Works in most terminal setups and aligns with common TUI conventions.
-- Alternative considered: Reusing `Tab`/`Shift+Tab`. Rejected because those keys are often reserved by terminal/input handling and are less discoverable for scrolling.
+2. Define fixed key bindings for dual-pane line scrolling.
+- Decision: Support `Up`/`Down` for IPv4 pane scroll and `j`/`k` for IPv6 pane scroll, each one line at a time. No page-scroll keys (PageUp/PageDown/Space) as address lists are not expected to grow large enough to warrant them.
+- Rationale: Dual-pane independent scrolling lets users navigate IPv4 and IPv6 lists separately without mode switching. One-line scrolling is sufficient given typical address counts.
+- Alternative considered: Unified scroll model where Up/k/PageUp all control the same list. Rejected because the TUI already renders IPv4 and IPv6 as separate panels and independent control is more natural.
 
 3. Clamp scrolling and auto-adjust on data/resize changes.
 - Decision: Clamp offset to `[0, max_offset]` each render tick, recomputing `max_offset = total_rows - visible_rows` after terminal resize or list size changes.
@@ -59,7 +59,7 @@ The monitoring TUI currently renders discovered IPv4 and IPv6 entries in a stati
 
 Rollback: revert to previous renderer/input paths by removing viewport state usage; data model remains unchanged.
 
-## Open Questions
+## Resolved Questions
 
-- Should `Home`/`End` jump to top/bottom be included now or deferred?
-- Should newly discovered addresses auto-scroll when user is currently at bottom?
+- `Home`/`End` jump to top/bottom: Deferred. Current line-by-line scrolling is sufficient for expected address counts.
+- Auto-scroll on new address discovery: No. Viewport stays stable; user scrolls manually. Offset is clamped if content shrinks.
