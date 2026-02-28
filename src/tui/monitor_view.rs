@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -16,6 +16,7 @@ use crate::tui::event::{AppEvent, is_quit, poll_event};
 use crate::types::{AppInfo, DiscoveredAddress, MonitorEvent, ProcessInfo};
 
 const MAX_COMMAND_SUMMARY_CHARS: usize = 48;
+const MAX_PROCESS_ROWS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AddressDisplayMode {
@@ -77,6 +78,8 @@ pub struct MonitorView {
     target_active: bool,
     address_display_mode: AddressDisplayMode,
     address_order_mode: AddressOrderMode,
+    address_scroll_offset: usize,
+    address_visible_rows: usize,
 }
 
 impl MonitorView {
@@ -97,6 +100,8 @@ impl MonitorView {
             target_active: false,
             address_display_mode: AddressDisplayMode::Masked,
             address_order_mode: AddressOrderMode::Time,
+            address_scroll_offset: 0,
+            address_visible_rows: 1,
         }
     }
 
@@ -198,6 +203,7 @@ impl MonitorView {
 
     fn toggle_address_display_mode(&mut self) {
         self.address_display_mode = self.address_display_mode.toggle();
+        self.clamp_address_scroll_offset(self.current_address_row_count());
         self.status_message = Some((
             format!("Address view: {}", self.address_display_mode.label()),
             Instant::now(),
@@ -251,17 +257,15 @@ impl MonitorView {
             .constraints([
                 Constraint::Length(3),
                 Constraint::Length(6),
-                Constraint::Min(4),
-                Constraint::Min(4),
+                Constraint::Min(6),
                 Constraint::Length(2),
             ])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_processes(frame, chunks[1]);
-        self.render_ipv4(frame, chunks[2]);
-        self.render_ipv6(frame, chunks[3]);
-        self.render_status_bar(frame, chunks[4]);
+        self.render_addresses(frame, chunks[2]);
+        self.render_status_bar(frame, chunks[3]);
     }
 
     fn render_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -307,7 +311,7 @@ impl MonitorView {
         let items: Vec<ListItem> = self
             .processes
             .iter()
-            .take(4)
+            .take(MAX_PROCESS_ROWS)
             .map(|proc_info| {
                 ListItem::new(Span::styled(
                     format_process_summary(proc_info),
@@ -316,8 +320,11 @@ impl MonitorView {
             })
             .collect();
 
-        let remaining = if self.processes.len() > 4 {
-            format!(" Tracked Processes (+{} more) ", self.processes.len() - 4)
+        let remaining = if self.processes.len() > MAX_PROCESS_ROWS {
+            format!(
+                " Tracked Processes (+{} more) ",
+                self.processes.len() - MAX_PROCESS_ROWS
+            )
         } else {
             " Tracked Processes ".to_string()
         };
@@ -350,32 +357,134 @@ impl MonitorView {
         self.ordered_entries(entries)
     }
 
-    fn render_ipv4(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let entries = self.current_ipv4_entries();
-        let items: Vec<ListItem> = entries
-            .iter()
-            .map(|address| ListItem::new(Span::styled(*address, Style::default().fg(Color::White))))
-            .collect();
-
-        let title = match self.address_display_mode {
-            AddressDisplayMode::Masked => format!(" IPv4 Subnets [Masked] ({}) ", entries.len()),
-            AddressDisplayMode::Raw => format!(" IPv4 Addresses [Raw] ({}) ", entries.len()),
+    fn current_address_rows(&self) -> Vec<String> {
+        let (ipv4_title, ipv6_title) = match self.address_display_mode {
+            AddressDisplayMode::Masked => ("IPv4 Subnets", "IPv6 Subnets"),
+            AddressDisplayMode::Raw => ("IPv4 Addresses", "IPv6 Addresses"),
         };
-        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
-        frame.render_widget(list, area);
+        let mut rows = Vec::new();
+
+        rows.push(format!(
+            "{ipv4_title} ({})",
+            self.current_ipv4_entries().len()
+        ));
+        if self.current_ipv4_entries().is_empty() {
+            rows.push("  (none)".to_string());
+        } else {
+            rows.extend(
+                self.current_ipv4_entries()
+                    .iter()
+                    .map(|entry| format!("  {entry}")),
+            );
+        }
+
+        rows.push(String::new());
+        rows.push(format!(
+            "{ipv6_title} ({})",
+            self.current_ipv6_entries().len()
+        ));
+        if self.current_ipv6_entries().is_empty() {
+            rows.push("  (none)".to_string());
+        } else {
+            rows.extend(
+                self.current_ipv6_entries()
+                    .iter()
+                    .map(|entry| format!("  {entry}")),
+            );
+        }
+
+        rows
     }
 
-    fn render_ipv6(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let entries = self.current_ipv6_entries();
-        let items: Vec<ListItem> = entries
+    fn current_address_row_count(&self) -> usize {
+        self.current_address_rows().len()
+    }
+
+    fn max_address_scroll_offset(total_rows: usize, visible_rows: usize) -> usize {
+        total_rows.saturating_sub(visible_rows.max(1))
+    }
+
+    fn clamp_address_scroll_offset(&mut self, total_rows: usize) {
+        let max_offset = Self::max_address_scroll_offset(total_rows, self.address_visible_rows);
+        self.address_scroll_offset = self.address_scroll_offset.min(max_offset);
+    }
+
+    fn scroll_up(&mut self, lines: usize) {
+        self.address_scroll_offset = self.address_scroll_offset.saturating_sub(lines);
+    }
+
+    fn scroll_down(&mut self, lines: usize, total_rows: usize) {
+        let max_offset = Self::max_address_scroll_offset(total_rows, self.address_visible_rows);
+        self.address_scroll_offset = self
+            .address_scroll_offset
+            .saturating_add(lines)
+            .min(max_offset);
+    }
+
+    fn page_scroll_step(&self) -> usize {
+        self.address_visible_rows.max(1)
+    }
+
+    fn handle_scroll_key(&mut self, key: KeyCode) -> bool {
+        let total_rows = self.current_address_row_count();
+        match key {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                self.scroll_up(1);
+                true
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                self.scroll_down(1, total_rows);
+                true
+            }
+            KeyCode::PageUp => {
+                self.scroll_up(self.page_scroll_step());
+                true
+            }
+            KeyCode::PageDown | KeyCode::Char(' ') => {
+                self.scroll_down(self.page_scroll_step(), total_rows);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn render_addresses(&mut self, frame: &mut Frame, area: Rect) {
+        let rows = self.current_address_rows();
+        self.address_visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
+        self.clamp_address_scroll_offset(rows.len());
+
+        let start = self.address_scroll_offset.min(rows.len());
+        let end = start
+            .saturating_add(self.address_visible_rows)
+            .min(rows.len());
+        let visible_rows = rows
+            .get(start..end)
+            .map(|slice| slice.to_vec())
+            .unwrap_or_else(Vec::new);
+
+        let items: Vec<ListItem> = visible_rows
             .iter()
-            .map(|address| ListItem::new(Span::styled(*address, Style::default().fg(Color::White))))
+            .map(|line| ListItem::new(Span::styled(line, Style::default().fg(Color::White))))
             .collect();
 
-        let title = match self.address_display_mode {
-            AddressDisplayMode::Masked => format!(" IPv6 Subnets [Masked] ({}) ", entries.len()),
-            AddressDisplayMode::Raw => format!(" IPv6 Addresses [Raw] ({}) ", entries.len()),
+        let title = if rows.len() > self.address_visible_rows {
+            let up = if start > 0 { "↑" } else { " " };
+            let down = if end < rows.len() { "↓" } else { " " };
+            format!(
+                " Addresses [{}]  Lines {}-{} / {} {up}{down} ",
+                self.address_display_mode.label(),
+                start + 1,
+                end.max(start + 1),
+                rows.len()
+            )
+        } else {
+            format!(
+                " Addresses [{}] ({}) ",
+                self.address_display_mode.label(),
+                rows.len()
+            )
         };
+
         let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
         frame.render_widget(list, area);
     }
@@ -422,7 +531,7 @@ impl MonitorView {
             Span::styled(status_msg, Style::default().fg(Color::Green)),
         ]);
         let line2 = Line::from(vec![Span::styled(
-            " [S]witch Mask/Raw  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
+            " [Up/Down/J/K]Scroll  [PgUp/PgDn/Space]Page  [S]witch  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
             Style::default().fg(Color::DarkGray),
         )]);
 
@@ -448,47 +557,56 @@ impl MonitorView {
                         if is_quit(&key) {
                             return Ok(MonitorAction::Quit);
                         }
-                        match key.code {
-                            KeyCode::Esc => return Ok(MonitorAction::Back),
-                            KeyCode::Char('s') | KeyCode::Char('S') => {
-                                self.toggle_address_display_mode();
-                            }
-                            KeyCode::Char('o') | KeyCode::Char('O') => {
-                                self.toggle_address_order_mode();
-                            }
-                            KeyCode::Char('e') | KeyCode::Char('E') => {
-                                match self.export_to_file() {
-                                    Ok(filename) => {
-                                        self.status_message = Some((
-                                            format!("Exported to {filename}"),
-                                            Instant::now(),
-                                        ));
-                                    }
-                                    Err(err) => {
-                                        self.status_message =
-                                            Some((format!("Export failed: {err}"), Instant::now()));
-                                    }
-                                }
-                            }
-                            KeyCode::Char('c') | KeyCode::Char('C') => {
-                                match self.copy_to_clipboard() {
-                                    Ok(()) => {
-                                        self.status_message = Some((
-                                            "Copied to clipboard".to_string(),
-                                            Instant::now(),
-                                        ));
-                                    }
-                                    Err(err) => {
-                                        self.status_message =
-                                            Some((format!("Copy failed: {err}"), Instant::now()));
-                                    }
-                                }
-                            }
-                            _ => {}
+                        if let Some(action) = self.handle_key_code(key.code) {
+                            return Ok(action);
                         }
                     }
                     AppEvent::Tick => {}
                 }
+            }
+        }
+    }
+
+    fn handle_key_code(&mut self, key: KeyCode) -> Option<MonitorAction> {
+        match key {
+            KeyCode::Esc => Some(MonitorAction::Back),
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.toggle_address_display_mode();
+                None
+            }
+            KeyCode::Char('o') | KeyCode::Char('O') => {
+                self.toggle_address_order_mode();
+                self.clamp_address_scroll_offset(self.current_address_row_count());
+                None
+            }
+            KeyCode::Char('e') | KeyCode::Char('E') => {
+                match self.export_to_file() {
+                    Ok(filename) => {
+                        self.status_message =
+                            Some((format!("Exported to {filename}"), Instant::now()));
+                    }
+                    Err(err) => {
+                        self.status_message =
+                            Some((format!("Export failed: {err}"), Instant::now()));
+                    }
+                }
+                None
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                match self.copy_to_clipboard() {
+                    Ok(()) => {
+                        self.status_message =
+                            Some(("Copied to clipboard".to_string(), Instant::now()));
+                    }
+                    Err(err) => {
+                        self.status_message = Some((format!("Copy failed: {err}"), Instant::now()));
+                    }
+                }
+                None
+            }
+            _ => {
+                self.handle_scroll_key(key);
+                None
             }
         }
     }
@@ -531,6 +649,8 @@ fn summarize_command(command: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use crossterm::event::KeyCode;
 
     use crate::types::{DiscoveredAddress, MonitorEvent};
 
@@ -584,6 +704,94 @@ mod tests {
         assert_eq!(view.address_display_mode, AddressDisplayMode::Raw);
         assert_eq!(view.current_ipv4_entries().len(), 2);
         assert_eq!(view.current_ipv6_entries().len(), 2);
+    }
+
+    fn fill_masked_rows(view: &mut MonitorView, count: usize) {
+        let ipv4_masked = (0..count)
+            .map(|i| format!("10.0.{i}.0/24"))
+            .collect::<Vec<_>>();
+        let ipv6_masked = (0..count)
+            .map(|i| format!("2001:db8:{i:x}::/64"))
+            .collect::<Vec<_>>();
+        view.restore_data(&ipv4_masked, &[], &ipv6_masked, &[]);
+    }
+
+    #[test]
+    fn test_scroll_offset_clamps_to_bounds() {
+        let mut view = MonitorView::new(test_app_info());
+        fill_masked_rows(&mut view, 8);
+
+        view.address_visible_rows = 4;
+        view.address_scroll_offset = 1_000;
+        let total_rows = view.current_address_row_count();
+
+        view.clamp_address_scroll_offset(total_rows);
+
+        let expected_max = MonitorView::max_address_scroll_offset(total_rows, 4);
+        assert_eq!(view.address_scroll_offset, expected_max);
+    }
+
+    #[test]
+    fn test_scroll_keys_move_line_and_page_with_bounds() {
+        let mut view = MonitorView::new(test_app_info());
+        fill_masked_rows(&mut view, 8);
+        view.address_visible_rows = 3;
+
+        assert_eq!(view.address_scroll_offset, 0);
+
+        view.handle_key_code(KeyCode::Down);
+        assert_eq!(view.address_scroll_offset, 1);
+
+        view.handle_key_code(KeyCode::Char('j'));
+        assert_eq!(view.address_scroll_offset, 2);
+
+        view.handle_key_code(KeyCode::PageDown);
+        assert_eq!(view.address_scroll_offset, 5);
+
+        view.handle_key_code(KeyCode::Char(' '));
+        assert_eq!(view.address_scroll_offset, 8);
+
+        let max = MonitorView::max_address_scroll_offset(view.current_address_row_count(), 3);
+        for _ in 0..16 {
+            view.handle_key_code(KeyCode::PageDown);
+        }
+        assert_eq!(view.address_scroll_offset, max);
+
+        view.handle_key_code(KeyCode::PageUp);
+        assert_eq!(view.address_scroll_offset, max.saturating_sub(3));
+
+        view.handle_key_code(KeyCode::Up);
+        view.handle_key_code(KeyCode::Char('k'));
+        assert_eq!(view.address_scroll_offset, max.saturating_sub(5));
+    }
+
+    #[test]
+    fn test_toggle_while_scrolled_keeps_mode_switch_and_clamps_offset() {
+        let mut view = MonitorView::new(test_app_info());
+        let ipv4_masked = vec!["142.250.80.0/24".to_string()];
+        let ipv4_raw = (0..10)
+            .map(|i| format!("142.250.80.{}", i + 1))
+            .collect::<Vec<_>>();
+        let ipv6_masked = vec!["2607:6bc0::/64".to_string()];
+        let ipv6_raw = (0..10)
+            .map(|i| format!("2607:6bc0::{:x}", i + 1))
+            .collect::<Vec<_>>();
+        view.restore_data(&ipv4_masked, &ipv4_raw, &ipv6_masked, &ipv6_raw);
+
+        view.address_visible_rows = 4;
+        view.toggle_address_display_mode();
+        view.handle_key_code(KeyCode::PageDown);
+        view.handle_key_code(KeyCode::PageDown);
+        assert_eq!(view.address_display_mode, AddressDisplayMode::Raw);
+        assert!(view.address_scroll_offset > 0);
+
+        view.toggle_address_display_mode();
+        assert_eq!(view.address_display_mode, AddressDisplayMode::Masked);
+        let max_masked =
+            MonitorView::max_address_scroll_offset(view.current_address_row_count(), 4);
+        assert!(view.address_scroll_offset <= max_masked);
+        assert_eq!(view.current_ipv4_entries(), &["142.250.80.0/24"]);
+        assert_eq!(view.current_ipv6_entries(), &["2607:6bc0::/64"]);
     }
 
     #[test]
