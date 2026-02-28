@@ -39,6 +39,28 @@ impl AddressDisplayMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddressOrderMode {
+    Time,
+    Alphabetical,
+}
+
+impl AddressOrderMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Time => "Time",
+            Self::Alphabetical => "A-Z",
+        }
+    }
+
+    fn toggle(self) -> Self {
+        match self {
+            Self::Time => Self::Alphabetical,
+            Self::Alphabetical => Self::Time,
+        }
+    }
+}
+
 pub struct MonitorView {
     app_info: AppInfo,
     processes: Vec<ProcessInfo>,
@@ -54,6 +76,7 @@ pub struct MonitorView {
     status_message: Option<(String, Instant)>,
     target_active: bool,
     address_display_mode: AddressDisplayMode,
+    address_order_mode: AddressOrderMode,
 }
 
 impl MonitorView {
@@ -73,6 +96,7 @@ impl MonitorView {
             status_message: None,
             target_active: false,
             address_display_mode: AddressDisplayMode::Masked,
+            address_order_mode: AddressOrderMode::Time,
         }
     }
 
@@ -176,6 +200,14 @@ impl MonitorView {
         self.address_display_mode = self.address_display_mode.toggle();
         self.status_message = Some((
             format!("Address view: {}", self.address_display_mode.label()),
+            Instant::now(),
+        ));
+    }
+
+    fn toggle_address_order_mode(&mut self) {
+        self.address_order_mode = self.address_order_mode.toggle();
+        self.status_message = Some((
+            format!("Address order: {}", self.address_order_mode.label()),
             Instant::now(),
         ));
     }
@@ -294,30 +326,35 @@ impl MonitorView {
         frame.render_widget(list, area);
     }
 
-    fn current_ipv4_entries(&self) -> &[String] {
-        match self.address_display_mode {
-            AddressDisplayMode::Masked => &self.ipv4_masked_subnets,
-            AddressDisplayMode::Raw => &self.ipv4_raw_addresses,
+    fn ordered_entries<'a>(&self, entries: &'a [String]) -> Vec<&'a str> {
+        let mut ordered = entries.iter().map(String::as_str).collect::<Vec<_>>();
+        if self.address_order_mode == AddressOrderMode::Alphabetical {
+            ordered.sort_unstable();
         }
+        ordered
     }
 
-    fn current_ipv6_entries(&self) -> &[String] {
-        match self.address_display_mode {
+    fn current_ipv4_entries(&self) -> Vec<&str> {
+        let entries = match self.address_display_mode {
+            AddressDisplayMode::Masked => &self.ipv4_masked_subnets,
+            AddressDisplayMode::Raw => &self.ipv4_raw_addresses,
+        };
+        self.ordered_entries(entries)
+    }
+
+    fn current_ipv6_entries(&self) -> Vec<&str> {
+        let entries = match self.address_display_mode {
             AddressDisplayMode::Masked => &self.ipv6_masked_addresses,
             AddressDisplayMode::Raw => &self.ipv6_raw_addresses,
-        }
+        };
+        self.ordered_entries(entries)
     }
 
     fn render_ipv4(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let entries = self.current_ipv4_entries();
         let items: Vec<ListItem> = entries
             .iter()
-            .map(|address| {
-                ListItem::new(Span::styled(
-                    address.as_str(),
-                    Style::default().fg(Color::White),
-                ))
-            })
+            .map(|address| ListItem::new(Span::styled(*address, Style::default().fg(Color::White))))
             .collect();
 
         let title = match self.address_display_mode {
@@ -332,12 +369,7 @@ impl MonitorView {
         let entries = self.current_ipv6_entries();
         let items: Vec<ListItem> = entries
             .iter()
-            .map(|address| {
-                ListItem::new(Span::styled(
-                    address.as_str(),
-                    Style::default().fg(Color::White),
-                ))
-            })
+            .map(|address| ListItem::new(Span::styled(*address, Style::default().fg(Color::White))))
             .collect();
 
         let title = match self.address_display_mode {
@@ -381,15 +413,16 @@ impl MonitorView {
             ),
             Span::styled(
                 format!(
-                    "│ {stability} │ Address view: {}",
-                    self.address_display_mode.label()
+                    "│ {stability} │ Address view: {} │ Order: {}",
+                    self.address_display_mode.label(),
+                    self.address_order_mode.label()
                 ),
                 Style::default().fg(Color::DarkGray),
             ),
             Span::styled(status_msg, Style::default().fg(Color::Green)),
         ]);
         let line2 = Line::from(vec![Span::styled(
-            " [S]witch Mask/Raw  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
+            " [S]witch Mask/Raw  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
             Style::default().fg(Color::DarkGray),
         )]);
 
@@ -419,6 +452,9 @@ impl MonitorView {
                             KeyCode::Esc => return Ok(MonitorAction::Back),
                             KeyCode::Char('s') | KeyCode::Char('S') => {
                                 self.toggle_address_display_mode();
+                            }
+                            KeyCode::Char('o') | KeyCode::Char('O') => {
+                                self.toggle_address_order_mode();
                             }
                             KeyCode::Char('e') | KeyCode::Char('E') => {
                                 match self.export_to_file() {
@@ -500,7 +536,9 @@ mod tests {
 
     use crate::types::ProcessInfo;
 
-    use super::{AddressDisplayMode, AppInfo, MonitorView, format_process_summary};
+    use super::{
+        AddressDisplayMode, AddressOrderMode, AppInfo, MonitorView, format_process_summary,
+    };
 
     fn test_app_info() -> AppInfo {
         AppInfo {
@@ -537,14 +575,91 @@ mod tests {
         ));
 
         assert_eq!(view.address_display_mode, AddressDisplayMode::Masked);
-        assert_eq!(view.current_ipv4_entries(), &["142.250.80.0/24"]);
-        assert_eq!(view.current_ipv6_entries(), &["2607:6bc0::/64"]);
+        assert_eq!(view.address_order_mode, AddressOrderMode::Time);
+        assert_eq!(view.current_ipv4_entries(), vec!["142.250.80.0/24"]);
+        assert_eq!(view.current_ipv6_entries(), vec!["2607:6bc0::/64"]);
 
         view.toggle_address_display_mode();
 
         assert_eq!(view.address_display_mode, AddressDisplayMode::Raw);
         assert_eq!(view.current_ipv4_entries().len(), 2);
         assert_eq!(view.current_ipv6_entries().len(), 2);
+    }
+
+    #[test]
+    fn test_toggle_order_switches_ipv4_and_ipv6_together() {
+        let mut view = MonitorView::new(test_app_info());
+
+        let ipv4_masked = vec![
+            "10.0.2.0/24".to_string(),
+            "10.0.10.0/24".to_string(),
+            "10.0.1.0/24".to_string(),
+        ];
+        let ipv4_raw = vec![];
+        let ipv6_masked = vec![
+            "2001:db8:c::/64".to_string(),
+            "2001:db8:a::/64".to_string(),
+            "2001:db8:b::/64".to_string(),
+        ];
+        let ipv6_raw = vec![];
+
+        view.restore_data(&ipv4_masked, &ipv4_raw, &ipv6_masked, &ipv6_raw);
+
+        assert_eq!(view.address_order_mode, AddressOrderMode::Time);
+        assert_eq!(
+            view.current_ipv4_entries(),
+            vec!["10.0.2.0/24", "10.0.10.0/24", "10.0.1.0/24"]
+        );
+        assert_eq!(
+            view.current_ipv6_entries(),
+            vec!["2001:db8:c::/64", "2001:db8:a::/64", "2001:db8:b::/64"]
+        );
+
+        view.toggle_address_order_mode();
+
+        assert_eq!(view.address_order_mode, AddressOrderMode::Alphabetical);
+        assert_eq!(
+            view.current_ipv4_entries(),
+            vec!["10.0.1.0/24", "10.0.10.0/24", "10.0.2.0/24"]
+        );
+        assert_eq!(
+            view.current_ipv6_entries(),
+            vec!["2001:db8:a::/64", "2001:db8:b::/64", "2001:db8:c::/64"]
+        );
+    }
+
+    #[test]
+    fn test_alphabetical_order_applies_in_raw_view() {
+        let mut view = MonitorView::new(test_app_info());
+
+        let ipv4_masked = vec![];
+        let ipv4_raw = vec![
+            "1.1.1.2".to_string(),
+            "1.1.1.10".to_string(),
+            "1.1.1.1".to_string(),
+        ];
+        let ipv6_masked = vec![];
+        let ipv6_raw = vec![
+            "2001:db8:c::1".to_string(),
+            "2001:db8:a::1".to_string(),
+            "2001:db8:b::1".to_string(),
+        ];
+
+        view.restore_data(&ipv4_masked, &ipv4_raw, &ipv6_masked, &ipv6_raw);
+
+        view.toggle_address_display_mode();
+        view.toggle_address_order_mode();
+
+        assert_eq!(view.address_display_mode, AddressDisplayMode::Raw);
+        assert_eq!(view.address_order_mode, AddressOrderMode::Alphabetical);
+        assert_eq!(
+            view.current_ipv4_entries(),
+            vec!["1.1.1.1", "1.1.1.10", "1.1.1.2"]
+        );
+        assert_eq!(
+            view.current_ipv6_entries(),
+            vec!["2001:db8:a::1", "2001:db8:b::1", "2001:db8:c::1"]
+        );
     }
 
     #[test]
