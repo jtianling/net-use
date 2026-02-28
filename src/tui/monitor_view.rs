@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -78,8 +78,10 @@ pub struct MonitorView {
     target_active: bool,
     address_display_mode: AddressDisplayMode,
     address_order_mode: AddressOrderMode,
-    address_scroll_offset: usize,
-    address_visible_rows: usize,
+    ipv4_scroll_offset: usize,
+    ipv4_visible_rows: usize,
+    ipv6_scroll_offset: usize,
+    ipv6_visible_rows: usize,
 }
 
 impl MonitorView {
@@ -100,8 +102,10 @@ impl MonitorView {
             target_active: false,
             address_display_mode: AddressDisplayMode::Masked,
             address_order_mode: AddressOrderMode::Time,
-            address_scroll_offset: 0,
-            address_visible_rows: 1,
+            ipv4_scroll_offset: 0,
+            ipv4_visible_rows: 1,
+            ipv6_scroll_offset: 0,
+            ipv6_visible_rows: 1,
         }
     }
 
@@ -203,7 +207,8 @@ impl MonitorView {
 
     fn toggle_address_display_mode(&mut self) {
         self.address_display_mode = self.address_display_mode.toggle();
-        self.clamp_address_scroll_offset(self.current_address_row_count());
+        self.clamp_ipv4_scroll_offset(self.current_ipv4_entries().len());
+        self.clamp_ipv6_scroll_offset(self.current_ipv6_entries().len());
         self.status_message = Some((
             format!("Address view: {}", self.address_display_mode.label()),
             Instant::now(),
@@ -257,15 +262,17 @@ impl MonitorView {
             .constraints([
                 Constraint::Length(3),
                 Constraint::Length(6),
-                Constraint::Min(6),
+                Constraint::Min(4),
+                Constraint::Min(4),
                 Constraint::Length(2),
             ])
             .split(frame.area());
 
         self.render_header(frame, chunks[0]);
         self.render_processes(frame, chunks[1]);
-        self.render_addresses(frame, chunks[2]);
-        self.render_status_bar(frame, chunks[3]);
+        self.render_ipv4(frame, chunks[2]);
+        self.render_ipv6(frame, chunks[3]);
+        self.render_status_bar(frame, chunks[4]);
     }
 
     fn render_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -357,132 +364,132 @@ impl MonitorView {
         self.ordered_entries(entries)
     }
 
-    fn current_address_rows(&self) -> Vec<String> {
-        let (ipv4_title, ipv6_title) = match self.address_display_mode {
-            AddressDisplayMode::Masked => ("IPv4 Subnets", "IPv6 Subnets"),
-            AddressDisplayMode::Raw => ("IPv4 Addresses", "IPv6 Addresses"),
-        };
-        let mut rows = Vec::new();
-
-        rows.push(format!(
-            "{ipv4_title} ({})",
-            self.current_ipv4_entries().len()
-        ));
-        if self.current_ipv4_entries().is_empty() {
-            rows.push("  (none)".to_string());
-        } else {
-            rows.extend(
-                self.current_ipv4_entries()
-                    .iter()
-                    .map(|entry| format!("  {entry}")),
-            );
-        }
-
-        rows.push(String::new());
-        rows.push(format!(
-            "{ipv6_title} ({})",
-            self.current_ipv6_entries().len()
-        ));
-        if self.current_ipv6_entries().is_empty() {
-            rows.push("  (none)".to_string());
-        } else {
-            rows.extend(
-                self.current_ipv6_entries()
-                    .iter()
-                    .map(|entry| format!("  {entry}")),
-            );
-        }
-
-        rows
-    }
-
-    fn current_address_row_count(&self) -> usize {
-        self.current_address_rows().len()
-    }
-
-    fn max_address_scroll_offset(total_rows: usize, visible_rows: usize) -> usize {
+    fn max_scroll_offset(total_rows: usize, visible_rows: usize) -> usize {
         total_rows.saturating_sub(visible_rows.max(1))
     }
 
-    fn clamp_address_scroll_offset(&mut self, total_rows: usize) {
-        let max_offset = Self::max_address_scroll_offset(total_rows, self.address_visible_rows);
-        self.address_scroll_offset = self.address_scroll_offset.min(max_offset);
+    fn clamp_ipv4_scroll_offset(&mut self, total_rows: usize) {
+        let max_offset = Self::max_scroll_offset(total_rows, self.ipv4_visible_rows);
+        self.ipv4_scroll_offset = self.ipv4_scroll_offset.min(max_offset);
     }
 
-    fn scroll_up(&mut self, lines: usize) {
-        self.address_scroll_offset = self.address_scroll_offset.saturating_sub(lines);
+    fn clamp_ipv6_scroll_offset(&mut self, total_rows: usize) {
+        let max_offset = Self::max_scroll_offset(total_rows, self.ipv6_visible_rows);
+        self.ipv6_scroll_offset = self.ipv6_scroll_offset.min(max_offset);
     }
 
-    fn scroll_down(&mut self, lines: usize, total_rows: usize) {
-        let max_offset = Self::max_address_scroll_offset(total_rows, self.address_visible_rows);
-        self.address_scroll_offset = self
-            .address_scroll_offset
+    fn scroll_ipv4_up(&mut self, lines: usize) {
+        self.ipv4_scroll_offset = self.ipv4_scroll_offset.saturating_sub(lines);
+    }
+
+    fn scroll_ipv4_down(&mut self, lines: usize, total_rows: usize) {
+        let max_offset = Self::max_scroll_offset(total_rows, self.ipv4_visible_rows);
+        self.ipv4_scroll_offset = self
+            .ipv4_scroll_offset
             .saturating_add(lines)
             .min(max_offset);
     }
 
-    fn page_scroll_step(&self) -> usize {
-        self.address_visible_rows.max(1)
+    fn scroll_ipv6_up(&mut self, lines: usize) {
+        self.ipv6_scroll_offset = self.ipv6_scroll_offset.saturating_sub(lines);
+    }
+
+    fn scroll_ipv6_down(&mut self, lines: usize, total_rows: usize) {
+        let max_offset = Self::max_scroll_offset(total_rows, self.ipv6_visible_rows);
+        self.ipv6_scroll_offset = self
+            .ipv6_scroll_offset
+            .saturating_add(lines)
+            .min(max_offset);
     }
 
     fn handle_scroll_key(&mut self, key: KeyCode) -> bool {
-        let total_rows = self.current_address_row_count();
         match key {
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
-                self.scroll_up(1);
+            KeyCode::Up => {
+                self.scroll_ipv4_up(1);
                 true
             }
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
-                self.scroll_down(1, total_rows);
+            KeyCode::Down => {
+                let total_rows = self.current_ipv4_entries().len();
+                self.scroll_ipv4_down(1, total_rows);
                 true
             }
-            KeyCode::PageUp => {
-                self.scroll_up(self.page_scroll_step());
+            KeyCode::Char('k') | KeyCode::Char('K') => {
+                self.scroll_ipv6_up(1);
                 true
             }
-            KeyCode::PageDown | KeyCode::Char(' ') => {
-                self.scroll_down(self.page_scroll_step(), total_rows);
+            KeyCode::Char('j') | KeyCode::Char('J') => {
+                let total_rows = self.current_ipv6_entries().len();
+                self.scroll_ipv6_down(1, total_rows);
                 true
             }
             _ => false,
         }
     }
 
-    fn render_addresses(&mut self, frame: &mut Frame, area: Rect) {
-        let rows = self.current_address_rows();
-        self.address_visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
-        self.clamp_address_scroll_offset(rows.len());
+    fn render_ipv4(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let total_rows = self.current_ipv4_entries().len();
+        self.ipv4_visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
+        self.clamp_ipv4_scroll_offset(total_rows);
 
-        let start = self.address_scroll_offset.min(rows.len());
-        let end = start
-            .saturating_add(self.address_visible_rows)
-            .min(rows.len());
-        let visible_rows = rows
-            .get(start..end)
-            .map(|slice| slice.to_vec())
-            .unwrap_or_else(Vec::new);
-
-        let items: Vec<ListItem> = visible_rows
+        let start = self.ipv4_scroll_offset.min(total_rows);
+        let end = start.saturating_add(self.ipv4_visible_rows).min(total_rows);
+        let entries = self.current_ipv4_entries();
+        let visible_entries = entries.get(start..end).unwrap_or_default();
+        let items: Vec<ListItem> = visible_entries
             .iter()
-            .map(|line| ListItem::new(Span::styled(line, Style::default().fg(Color::White))))
+            .map(|entry| ListItem::new(Span::styled(*entry, Style::default().fg(Color::White))))
             .collect();
 
-        let title = if rows.len() > self.address_visible_rows {
+        let title_prefix = match self.address_display_mode {
+            AddressDisplayMode::Masked => " IPv4 Subnets [Masked] ",
+            AddressDisplayMode::Raw => " IPv4 Addresses [Raw] ",
+        };
+        let title = if total_rows > self.ipv4_visible_rows {
             let up = if start > 0 { "↑" } else { " " };
-            let down = if end < rows.len() { "↓" } else { " " };
+            let down = if end < total_rows { "↓" } else { " " };
             format!(
-                " Addresses [{}]  Lines {}-{} / {} {up}{down} ",
-                self.address_display_mode.label(),
+                "{title_prefix}({total_rows}) {up}{down} {}-{} / {} ",
                 start + 1,
                 end.max(start + 1),
-                rows.len()
+                total_rows
             )
         } else {
+            format!("{title_prefix}({total_rows}) ")
+        };
+
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
+        frame.render_widget(list, area);
+    }
+
+    fn render_ipv6(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let total_rows = self.current_ipv6_entries().len();
+        self.ipv6_visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
+        self.clamp_ipv6_scroll_offset(total_rows);
+
+        let start = self.ipv6_scroll_offset.min(total_rows);
+        let end = start.saturating_add(self.ipv6_visible_rows).min(total_rows);
+        let entries = self.current_ipv6_entries();
+        let visible_entries = entries.get(start..end).unwrap_or_default();
+        let items: Vec<ListItem> = visible_entries
+            .iter()
+            .map(|entry| ListItem::new(Span::styled(*entry, Style::default().fg(Color::White))))
+            .collect();
+
+        let title_prefix = match self.address_display_mode {
+            AddressDisplayMode::Masked => " IPv6 Subnets [Masked] ",
+            AddressDisplayMode::Raw => " IPv6 Addresses [Raw] ",
+        };
+        let title = if total_rows > self.ipv6_visible_rows {
+            let up = if start > 0 { "↑" } else { " " };
+            let down = if end < total_rows { "↓" } else { " " };
             format!(
-                " Addresses [{}] ({}) ",
-                self.address_display_mode.label(),
-                rows.len()
+                "{title_prefix}({total_rows}) {up}{down} {}-{} / {} ",
+                start + 1,
+                end.max(start + 1),
+                total_rows
             )
+        } else {
+            format!("{title_prefix}({total_rows}) ")
         };
 
         let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
@@ -531,7 +538,7 @@ impl MonitorView {
             Span::styled(status_msg, Style::default().fg(Color::Green)),
         ]);
         let line2 = Line::from(vec![Span::styled(
-            " [Up/Down/J/K]Scroll  [PgUp/PgDn/Space]Page  [S]witch  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
+            " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
             Style::default().fg(Color::DarkGray),
         )]);
 
@@ -576,7 +583,8 @@ impl MonitorView {
             }
             KeyCode::Char('o') | KeyCode::Char('O') => {
                 self.toggle_address_order_mode();
-                self.clamp_address_scroll_offset(self.current_address_row_count());
+                self.clamp_ipv4_scroll_offset(self.current_ipv4_entries().len());
+                self.clamp_ipv6_scroll_offset(self.current_ipv6_entries().len());
                 None
             }
             KeyCode::Char('e') | KeyCode::Char('E') => {
@@ -717,56 +725,60 @@ mod tests {
     }
 
     #[test]
-    fn test_scroll_offset_clamps_to_bounds() {
+    fn test_separate_scroll_offsets_clamp_to_bounds() {
         let mut view = MonitorView::new(test_app_info());
         fill_masked_rows(&mut view, 8);
 
-        view.address_visible_rows = 4;
-        view.address_scroll_offset = 1_000;
-        let total_rows = view.current_address_row_count();
+        view.ipv4_visible_rows = 3;
+        view.ipv6_visible_rows = 5;
+        view.ipv4_scroll_offset = 1_000;
+        view.ipv6_scroll_offset = 1_000;
 
-        view.clamp_address_scroll_offset(total_rows);
+        view.clamp_ipv4_scroll_offset(view.current_ipv4_entries().len());
+        view.clamp_ipv6_scroll_offset(view.current_ipv6_entries().len());
 
-        let expected_max = MonitorView::max_address_scroll_offset(total_rows, 4);
-        assert_eq!(view.address_scroll_offset, expected_max);
+        let expected_ipv4 = MonitorView::max_scroll_offset(view.current_ipv4_entries().len(), 3);
+        let expected_ipv6 = MonitorView::max_scroll_offset(view.current_ipv6_entries().len(), 5);
+        assert_eq!(view.ipv4_scroll_offset, expected_ipv4);
+        assert_eq!(view.ipv6_scroll_offset, expected_ipv6);
     }
 
     #[test]
-    fn test_scroll_keys_move_line_and_page_with_bounds() {
+    fn test_scroll_keys_affect_target_window_only() {
         let mut view = MonitorView::new(test_app_info());
         fill_masked_rows(&mut view, 8);
-        view.address_visible_rows = 3;
-
-        assert_eq!(view.address_scroll_offset, 0);
+        view.ipv4_visible_rows = 3;
+        view.ipv6_visible_rows = 2;
 
         view.handle_key_code(KeyCode::Down);
-        assert_eq!(view.address_scroll_offset, 1);
+        assert_eq!(view.ipv4_scroll_offset, 1);
+        assert_eq!(view.ipv6_scroll_offset, 0);
+
+        view.handle_key_code(KeyCode::Down);
+        assert_eq!(view.ipv4_scroll_offset, 2);
+        assert_eq!(view.ipv6_scroll_offset, 0);
 
         view.handle_key_code(KeyCode::Char('j'));
-        assert_eq!(view.address_scroll_offset, 2);
+        assert_eq!(view.ipv4_scroll_offset, 2);
+        assert_eq!(view.ipv6_scroll_offset, 1);
 
-        view.handle_key_code(KeyCode::PageDown);
-        assert_eq!(view.address_scroll_offset, 5);
-
-        view.handle_key_code(KeyCode::Char(' '));
-        assert_eq!(view.address_scroll_offset, 8);
-
-        let max = MonitorView::max_address_scroll_offset(view.current_address_row_count(), 3);
-        for _ in 0..16 {
-            view.handle_key_code(KeyCode::PageDown);
+        for _ in 0..32 {
+            view.handle_key_code(KeyCode::Char('j'));
         }
-        assert_eq!(view.address_scroll_offset, max);
+        let ipv6_max = MonitorView::max_scroll_offset(view.current_ipv6_entries().len(), 2);
+        assert_eq!(view.ipv6_scroll_offset, ipv6_max);
 
-        view.handle_key_code(KeyCode::PageUp);
-        assert_eq!(view.address_scroll_offset, max.saturating_sub(3));
+        view.handle_key_code(KeyCode::Char('k'));
+        assert_eq!(view.ipv6_scroll_offset, ipv6_max.saturating_sub(1));
+        assert_eq!(view.ipv4_scroll_offset, 2);
 
         view.handle_key_code(KeyCode::Up);
-        view.handle_key_code(KeyCode::Char('k'));
-        assert_eq!(view.address_scroll_offset, max.saturating_sub(5));
+        assert_eq!(view.ipv4_scroll_offset, 1);
+        assert_eq!(view.ipv6_scroll_offset, ipv6_max.saturating_sub(1));
     }
 
     #[test]
-    fn test_toggle_while_scrolled_keeps_mode_switch_and_clamps_offset() {
+    fn test_toggle_while_scrolled_clamps_each_window_offset() {
         let mut view = MonitorView::new(test_app_info());
         let ipv4_masked = vec!["142.250.80.0/24".to_string()];
         let ipv4_raw = (0..10)
@@ -778,18 +790,23 @@ mod tests {
             .collect::<Vec<_>>();
         view.restore_data(&ipv4_masked, &ipv4_raw, &ipv6_masked, &ipv6_raw);
 
-        view.address_visible_rows = 4;
+        view.ipv4_visible_rows = 3;
+        view.ipv6_visible_rows = 4;
         view.toggle_address_display_mode();
-        view.handle_key_code(KeyCode::PageDown);
-        view.handle_key_code(KeyCode::PageDown);
+        for _ in 0..12 {
+            view.handle_key_code(KeyCode::Down);
+            view.handle_key_code(KeyCode::Char('j'));
+        }
         assert_eq!(view.address_display_mode, AddressDisplayMode::Raw);
-        assert!(view.address_scroll_offset > 0);
+        assert!(view.ipv4_scroll_offset > 0);
+        assert!(view.ipv6_scroll_offset > 0);
 
         view.toggle_address_display_mode();
         assert_eq!(view.address_display_mode, AddressDisplayMode::Masked);
-        let max_masked =
-            MonitorView::max_address_scroll_offset(view.current_address_row_count(), 4);
-        assert!(view.address_scroll_offset <= max_masked);
+        let ipv4_max = MonitorView::max_scroll_offset(view.current_ipv4_entries().len(), 3);
+        let ipv6_max = MonitorView::max_scroll_offset(view.current_ipv6_entries().len(), 4);
+        assert!(view.ipv4_scroll_offset <= ipv4_max);
+        assert!(view.ipv6_scroll_offset <= ipv6_max);
         assert_eq!(view.current_ipv4_entries(), &["142.250.80.0/24"]);
         assert_eq!(view.current_ipv6_entries(), &["2607:6bc0::/64"]);
     }
