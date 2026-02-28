@@ -422,6 +422,11 @@ async fn tui_main_loop(
                 persist_preserved_history(&preserved_by_target);
                 resume_on_enter = false;
             }
+            MonitorAction::ResumeTarget => {
+                active_session.ensure_running(&target);
+                sessions.insert(target.clone(), active_session);
+                resume_on_enter = true;
+            }
         }
     }
 }

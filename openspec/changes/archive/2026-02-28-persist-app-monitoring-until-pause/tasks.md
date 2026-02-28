@@ -20,4 +20,4 @@
 
 - [x] 4.1 Update quit-path teardown to stop all active sessions and persist the full per-target history map once before exit.
 - [x] 4.2 Add/adjust tests in `src/main.rs` and `src/tui/monitor_view.rs` for `Esc` non-stop behavior, `p` pause semantics, and multi-target isolation.
-- [ ] 4.3 Manually validate TUI workflow: monitor A -> Esc -> monitor B -> confirm A still collecting -> reopen A -> press `p` -> confirm A stops while B continues.
+- [x] 4.3 Manually validate TUI workflow: monitor A -> Esc -> monitor B -> confirm A still collecting -> reopen A -> press `p` -> confirm A stops while B continues.

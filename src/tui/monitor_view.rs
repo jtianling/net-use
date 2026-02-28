@@ -177,6 +177,7 @@ impl MonitorView {
         self.paused = paused;
     }
 
+    #[cfg(test)]
     pub fn is_paused(&self) -> bool {
         self.paused
     }
@@ -593,8 +594,11 @@ impl MonitorView {
             ),
             Span::styled(status_msg, Style::default().fg(Color::Green)),
         ]);
+        let pause_label = if self.paused { "[P]Resume" } else { "[P]ause" };
         let line2 = Line::from(vec![Span::styled(
-            " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  [P]ause  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
+            format!(
+                " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  {pause_label}  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit"
+            ),
             Style::default().fg(Color::DarkGray),
         )]);
 
@@ -635,7 +639,13 @@ impl MonitorView {
     fn handle_key_code(&mut self, key: KeyCode) -> Option<MonitorAction> {
         match key {
             KeyCode::Esc => Some(MonitorAction::Back),
-            KeyCode::Char('p') | KeyCode::Char('P') => Some(MonitorAction::PauseTarget),
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                if self.paused {
+                    Some(MonitorAction::ResumeTarget)
+                } else {
+                    Some(MonitorAction::PauseTarget)
+                }
+            }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 self.toggle_address_display_mode();
                 None
@@ -684,6 +694,7 @@ pub enum MonitorAction {
     Quit,
     Back,
     PauseTarget,
+    ResumeTarget,
 }
 
 fn chrono_timestamp() -> String {
@@ -849,6 +860,20 @@ mod tests {
         assert_eq!(
             view.handle_key_code(KeyCode::Char('P')),
             Some(MonitorAction::PauseTarget)
+        );
+    }
+
+    #[test]
+    fn test_pause_key_toggles_to_resume_when_paused() {
+        let mut view = MonitorView::new(test_app_info());
+        view.set_paused(true);
+        assert_eq!(
+            view.handle_key_code(KeyCode::Char('p')),
+            Some(MonitorAction::ResumeTarget)
+        );
+        assert_eq!(
+            view.handle_key_code(KeyCode::Char('P')),
+            Some(MonitorAction::ResumeTarget)
         );
     }
 

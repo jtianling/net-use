@@ -32,7 +32,7 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 - **THEN** system continues to app selection and monitoring with empty history without crashing
 
 ### Requirement: Monitoring screen
-The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible. The monitoring screen SHALL support explicit per-target pause control via `p` and SHALL keep collected addresses visible after pause.
+The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible. The monitoring screen SHALL support per-target pause/resume toggle via `p` and SHALL keep collected addresses visible after pause.
 
 #### Scenario: Monitoring an active app
 - **WHEN** monitoring is active
@@ -54,9 +54,9 @@ The system SHALL display real-time monitoring status including tracked processes
 - **WHEN** user presses `p` or `P` on the monitoring screen for target A
 - **THEN** system stops target A's active monitoring loop, marks target A as paused, and keeps target A's discovered IPv4/IPv6 masked and raw address history visible in the current view
 
-#### Scenario: User pauses an already paused target
-- **WHEN** target A is already paused and user presses `p` or `P` again
-- **THEN** system keeps target A paused and does not clear collected data or crash
+#### Scenario: User resumes a paused target
+- **WHEN** target A is paused and user presses `p` or `P` again
+- **THEN** system restarts target A's monitoring loop, marks target A as active, and continues appending newly discovered addresses to the existing history
 
 #### Scenario: Command summary unavailable for a tracked process
 - **WHEN** command line metadata cannot be retrieved for a tracked PID

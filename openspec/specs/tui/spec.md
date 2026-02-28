@@ -7,7 +7,7 @@ Provide an interactive terminal user interface for app selection, real-time moni
 ## Requirements
 
 ### Requirement: App selection screen
-The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again.
+The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again. The selector SHALL allow re-entering an already-active target monitor session without discarding in-memory collected data for that target.
 
 #### Scenario: User opens the tool without --pid/--name/--bundle
 - **WHEN** user runs `sudo net-use` without target arguments
@@ -19,11 +19,15 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 
 #### Scenario: User selects an app
 - **WHEN** user highlights an app and presses Enter
-- **THEN** system transitions to the monitoring screen and begins monitoring the selected app
+- **THEN** system transitions to the monitoring screen and begins monitoring the selected app if it is not already being monitored in this session
 
 #### Scenario: User selects a running CLI process
 - **WHEN** user highlights a CLI process entry and presses Enter
 - **THEN** system starts monitoring that PID as the target and shows it in the monitoring screen header
+
+#### Scenario: User selects a target already monitored in this session
+- **WHEN** user highlights a target that is already being monitored in the same `net-use` session and presses Enter
+- **THEN** system opens that target's monitoring screen using the existing session state and continues collecting without resetting discovered address history
 
 #### Scenario: User reselects a previously monitored target after restart
 - **WHEN** user starts `net-use` in a working directory that contains persisted history and selects a target with saved records
@@ -34,7 +38,7 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 - **THEN** system continues to app selection and monitoring with empty history without crashing
 
 ### Requirement: Monitoring screen
-The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible.
+The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible. The monitoring screen SHALL support per-target pause/resume toggle via `p` and SHALL keep collected addresses visible after pause.
 
 #### Scenario: Monitoring an active app
 - **WHEN** monitoring is active
@@ -51,6 +55,14 @@ The system SHALL display real-time monitoring status including tracked processes
 #### Scenario: User toggles address order mode
 - **WHEN** user presses `O` on the monitoring screen
 - **THEN** system toggles address lists between discovery-time order and deterministic sorted order, where IPv4 entries are sorted by octet numeric value (for example `9.0.0.0` before `100.0.0.0`) and IPv6 entries are sorted alphabetically, without losing collected data
+
+#### Scenario: User pauses current target monitoring
+- **WHEN** user presses `p` or `P` on the monitoring screen for target A
+- **THEN** system stops target A's active monitoring loop, marks target A as paused, and keeps target A's discovered IPv4/IPv6 masked and raw address history visible in the current view
+
+#### Scenario: User resumes a paused target
+- **WHEN** target A is paused and user presses `p` or `P` again
+- **THEN** system restarts target A's monitoring loop, marks target A as active, and continues appending newly discovered addresses to the existing history
 
 #### Scenario: Command summary unavailable for a tracked process
 - **WHEN** command line metadata cannot be retrieved for a tracked PID
@@ -114,19 +126,23 @@ The system SHALL allow the user to copy the current IP list to the system clipbo
 - **THEN** system copies all discovered IPv4 subnets and canonical IPv6 `/64` entries (one per line) to the macOS clipboard
 
 ### Requirement: Navigation between screens
-The system SHALL allow the user to return to the app selection screen from the monitoring screen, and SHALL persist discovered address history per target to a file in the command working directory for later restoration.
+The system SHALL allow the user to return to the app selection screen from the monitoring screen without implicitly stopping monitoring for the current target, and SHALL persist discovered address history per target to a file in the command working directory for later restoration.
 
 #### Scenario: User presses Escape during monitoring
-- **WHEN** user presses Esc on the monitoring screen
-- **THEN** system stops monitoring, stores collected addresses under the current target identity, writes updated history to the working-directory persistence file, and returns to the app selection screen
+- **WHEN** user presses Esc on the monitoring screen for target A
+- **THEN** system returns to the app selection screen while target A continues monitoring in the background and keeps updating target A's collected address history
 
 #### Scenario: User switches to a different target after going back
 - **WHEN** user returns from target A and then selects target B
-- **THEN** system shows only target B's cached addresses (if any) and MUST NOT reuse target A's cached addresses in target B's monitoring view
+- **THEN** system starts or resumes monitoring target B in its own target session while target A remains monitored unless target A has been explicitly paused
+
+#### Scenario: Monitoring data remains isolated by target
+- **WHEN** user alternates between target A and target B while both have session data
+- **THEN** each target view shows only that target's cached and live-discovered addresses and MUST NOT reuse the other target's addresses
 
 ### Requirement: Quit
 The system SHALL exit cleanly when the user presses the quit key.
 
 #### Scenario: User presses Quit key
 - **WHEN** user presses Q
-- **THEN** system stops monitoring, persists current address history to the working-directory file, restores terminal state, and exits
+- **THEN** system stops all active monitoring sessions, persists per-target address history to the working-directory file, restores terminal state, and exits
