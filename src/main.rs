@@ -4,6 +4,7 @@ mod monitor;
 mod tui;
 mod types;
 
+use std::collections::HashMap;
 use std::io;
 
 use anyhow::{Result, bail};
@@ -37,6 +38,34 @@ pub struct Cli {
 
     #[arg(long, help = "Disable TUI, output to stdout")]
     pub no_tui: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PreservedData {
+    ipv4_masked: Vec<String>,
+    ipv4_raw: Vec<String>,
+    ipv6_masked: Vec<String>,
+    ipv6_raw: Vec<String>,
+}
+
+impl PreservedData {
+    fn from_view(view: &MonitorView) -> Self {
+        Self {
+            ipv4_masked: view.ipv4_masked_data().to_vec(),
+            ipv4_raw: view.ipv4_raw_data().to_vec(),
+            ipv6_masked: view.ipv6_masked_data().to_vec(),
+            ipv6_raw: view.ipv6_raw_data().to_vec(),
+        }
+    }
+
+    fn restore_into(&self, view: &mut MonitorView) {
+        view.restore_data(
+            &self.ipv4_masked,
+            &self.ipv4_raw,
+            &self.ipv6_masked,
+            &self.ipv6_raw,
+        );
+    }
 }
 
 fn check_root() {
@@ -151,13 +180,7 @@ async fn tui_main_loop(
         None => select_app(terminal)?,
     };
 
-    let mut preserved: Option<(
-        MonitorTarget,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-    )> = None;
+    let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> = HashMap::new();
 
     loop {
         let (tx, mut rx) = mpsc::unbounded_channel::<MonitorEvent>();
@@ -169,22 +192,13 @@ async fn tui_main_loop(
         let app_info = target_to_app_info(&target);
         let mut view = MonitorView::new(app_info);
 
-        if let Some((ref prev_target, ref ipv4_masked, ref ipv4_raw, ref ipv6_masked, ref ipv6_raw)) =
-            preserved
-            && *prev_target == target
-        {
-            view.restore_data(ipv4_masked, ipv4_raw, ipv6_masked, ipv6_raw);
+        if let Some(saved) = preserved_by_target.get(&target) {
+            saved.restore_into(&mut view);
         }
 
         let action = view.run(terminal, &mut rx)?;
 
-        preserved = Some((
-            target.clone(),
-            view.ipv4_masked_data().to_vec(),
-            view.ipv4_raw_data().to_vec(),
-            view.ipv6_masked_data().to_vec(),
-            view.ipv6_raw_data().to_vec(),
-        ));
+        preserved_by_target.insert(target.clone(), PreservedData::from_view(&view));
 
         let _ = shutdown_tx.send(true);
         let _ = monitor_handle.await;
@@ -253,5 +267,79 @@ fn target_to_app_info(target: &MonitorTarget) -> AppInfo {
                 pid: None,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::{PreservedData, target_to_app_info};
+    use crate::tui::monitor_view::MonitorView;
+    use crate::types::MonitorTarget;
+
+    fn seeded_view(target: &MonitorTarget, ipv4_octet: u8, ipv6_segment: u16) -> MonitorView {
+        let mut view = MonitorView::new(target_to_app_info(target));
+        let ipv4_masked = vec![format!("10.0.{ipv4_octet}.0/24")];
+        let ipv4_raw = vec![
+            format!("10.0.{ipv4_octet}.1"),
+            format!("10.0.{ipv4_octet}.2"),
+        ];
+        let ipv6_masked = vec![format!("2001:db8:{ipv6_segment:x}::/64")];
+        let ipv6_raw = vec![
+            format!("2001:db8:{ipv6_segment:x}::1"),
+            format!("2001:db8:{ipv6_segment:x}::2"),
+        ];
+        view.restore_data(&ipv4_masked, &ipv4_raw, &ipv6_masked, &ipv6_raw);
+        view
+    }
+
+    #[test]
+    fn preserved_data_round_trip_restores_all_lists() {
+        let target = MonitorTarget::Name("alpha".to_string());
+        let view = seeded_view(&target, 0, 1);
+        let snapshot = PreservedData::from_view(&view);
+
+        let mut restored = MonitorView::new(target_to_app_info(&target));
+        snapshot.restore_into(&mut restored);
+
+        assert_eq!(restored.ipv4_masked_data(), &["10.0.0.0/24"]);
+        assert_eq!(restored.ipv4_raw_data(), &["10.0.0.1", "10.0.0.2"]);
+        assert_eq!(restored.ipv6_masked_data(), &["2001:db8:1::/64"]);
+        assert_eq!(
+            restored.ipv6_raw_data(),
+            &["2001:db8:1::1", "2001:db8:1::2"]
+        );
+    }
+
+    #[test]
+    fn cache_isolated_per_target_and_keyed_by_monitor_target() {
+        let target_a = MonitorTarget::Name("alpha".to_string());
+        let target_b = MonitorTarget::Name("beta".to_string());
+
+        let mut cache: HashMap<MonitorTarget, PreservedData> = HashMap::new();
+        cache.insert(
+            target_a.clone(),
+            PreservedData::from_view(&seeded_view(&target_a, 0, 1)),
+        );
+        cache.insert(
+            target_b.clone(),
+            PreservedData::from_view(&seeded_view(&target_b, 1, 2)),
+        );
+
+        let mut restored_a = MonitorView::new(target_to_app_info(&MonitorTarget::Name(
+            "alpha".to_string(),
+        )));
+        cache.get(&target_a).unwrap().restore_into(&mut restored_a);
+
+        assert_eq!(restored_a.ipv4_masked_data(), &["10.0.0.0/24"]);
+        assert!(!restored_a.ipv4_raw_data().contains(&"10.0.1.1".to_string()));
+
+        let mut restored_b =
+            MonitorView::new(target_to_app_info(&MonitorTarget::Name("beta".to_string())));
+        cache.get(&target_b).unwrap().restore_into(&mut restored_b);
+
+        assert_eq!(restored_b.ipv4_masked_data(), &["10.0.1.0/24"]);
+        assert!(!restored_b.ipv4_raw_data().contains(&"10.0.0.1".to_string()));
     }
 }

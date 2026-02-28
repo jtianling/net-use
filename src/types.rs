@@ -19,7 +19,7 @@ pub struct ProcessInfo {
     pub command: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MonitorTarget {
     Pid(i32),
     Name(String),
