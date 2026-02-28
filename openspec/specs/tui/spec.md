@@ -87,9 +87,17 @@ The system SHALL display real-time monitoring status including tracked processes
 ### Requirement: Stability indicator
 The system SHALL display the elapsed time since the last new IP was discovered, helping the user judge when the whitelist is complete.
 
-#### Scenario: No new IPs for extended period
-- **WHEN** 10 minutes have passed with no new IPs discovered
-- **THEN** the status bar shows "No new IPs for 10 min" and the timestamp of the last discovery
+#### Scenario: No IPs discovered yet
+- **WHEN** monitoring starts and no addresses have been discovered
+- **THEN** the status bar shows "No IPs discovered yet"
+
+#### Scenario: Recent IP discovery
+- **WHEN** a new IP was discovered less than 60 seconds ago
+- **THEN** the status bar shows "Last new: {seconds}s ago" with a live-updating elapsed counter
+
+#### Scenario: No new IPs for over a minute
+- **WHEN** 60 or more seconds have passed since the last new IP was discovered
+- **THEN** the status bar shows "No new IPs for {minutes} min" with the elapsed minutes since last discovery
 
 ### Requirement: Export functionality
 The system SHALL allow the user to export the current IP list to a file as plain text.
@@ -121,4 +129,4 @@ The system SHALL exit cleanly when the user presses the quit key.
 
 #### Scenario: User presses Quit key
 - **WHEN** user presses Q
-- **THEN** system stops monitoring, restores terminal state, and exits
+- **THEN** system stops monitoring, persists current address history to the working-directory file, restores terminal state, and exits
