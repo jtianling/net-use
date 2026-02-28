@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 use std::io::{self, Write as _};
+use std::net::Ipv4Addr;
 use std::process::Command;
 use std::time::{Duration, Instant};
+use std::{cmp::Ordering, str::FromStr};
 
 use anyhow::Result;
 use crossterm::event::KeyCode;
@@ -50,7 +52,7 @@ impl AddressOrderMode {
     fn label(self) -> &'static str {
         match self {
             Self::Time => "Time",
-            Self::Alphabetical => "A-Z",
+            Self::Alphabetical => "Sorted",
         }
     }
 
@@ -340,7 +342,30 @@ impl MonitorView {
         frame.render_widget(list, area);
     }
 
-    fn ordered_entries<'a>(&self, entries: &'a [String]) -> Vec<&'a str> {
+    fn parse_ipv4_sort_key(entry: &str) -> Option<[u8; 4]> {
+        let (address, _) = entry.split_once('/').unwrap_or((entry, ""));
+        Ipv4Addr::from_str(address).ok().map(|ip| ip.octets())
+    }
+
+    fn ordered_ipv4_entries<'a>(&self, entries: &'a [String]) -> Vec<&'a str> {
+        let mut ordered = entries.iter().map(String::as_str).collect::<Vec<_>>();
+        if self.address_order_mode == AddressOrderMode::Alphabetical {
+            ordered.sort_by(|left, right| {
+                match (
+                    Self::parse_ipv4_sort_key(left),
+                    Self::parse_ipv4_sort_key(right),
+                ) {
+                    (Some(left_key), Some(right_key)) => left_key.cmp(&right_key),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => left.cmp(right),
+                }
+            });
+        }
+        ordered
+    }
+
+    fn ordered_ipv6_entries<'a>(&self, entries: &'a [String]) -> Vec<&'a str> {
         let mut ordered = entries.iter().map(String::as_str).collect::<Vec<_>>();
         if self.address_order_mode == AddressOrderMode::Alphabetical {
             ordered.sort_unstable();
@@ -353,7 +378,7 @@ impl MonitorView {
             AddressDisplayMode::Masked => &self.ipv4_masked_subnets,
             AddressDisplayMode::Raw => &self.ipv4_raw_addresses,
         };
-        self.ordered_entries(entries)
+        self.ordered_ipv4_entries(entries)
     }
 
     fn current_ipv6_entries(&self) -> Vec<&str> {
@@ -361,7 +386,7 @@ impl MonitorView {
             AddressDisplayMode::Masked => &self.ipv6_masked_addresses,
             AddressDisplayMode::Raw => &self.ipv6_raw_addresses,
         };
-        self.ordered_entries(entries)
+        self.ordered_ipv6_entries(entries)
     }
 
     fn max_scroll_offset(total_rows: usize, visible_rows: usize) -> usize {
@@ -845,7 +870,7 @@ mod tests {
         assert_eq!(view.address_order_mode, AddressOrderMode::Alphabetical);
         assert_eq!(
             view.current_ipv4_entries(),
-            vec!["10.0.1.0/24", "10.0.10.0/24", "10.0.2.0/24"]
+            vec!["10.0.1.0/24", "10.0.2.0/24", "10.0.10.0/24"]
         );
         assert_eq!(
             view.current_ipv6_entries(),
@@ -854,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alphabetical_order_applies_in_raw_view() {
+    fn test_sorted_order_applies_in_raw_view() {
         let mut view = MonitorView::new(test_app_info());
 
         let ipv4_masked = vec![];
@@ -879,11 +904,29 @@ mod tests {
         assert_eq!(view.address_order_mode, AddressOrderMode::Alphabetical);
         assert_eq!(
             view.current_ipv4_entries(),
-            vec!["1.1.1.1", "1.1.1.10", "1.1.1.2"]
+            vec!["1.1.1.1", "1.1.1.2", "1.1.1.10"]
         );
         assert_eq!(
             view.current_ipv6_entries(),
             vec!["2001:db8:a::1", "2001:db8:b::1", "2001:db8:c::1"]
+        );
+    }
+
+    #[test]
+    fn test_ipv4_sorted_order_uses_numeric_segments() {
+        let mut view = MonitorView::new(test_app_info());
+
+        let ipv4_masked = vec![
+            "100.0.0.0/24".to_string(),
+            "9.0.0.0/24".to_string(),
+            "10.0.0.0/24".to_string(),
+        ];
+        view.restore_data(&ipv4_masked, &[], &[], &[]);
+        view.toggle_address_order_mode();
+
+        assert_eq!(
+            view.current_ipv4_entries(),
+            vec!["9.0.0.0/24", "10.0.0.0/24", "100.0.0.0/24"]
         );
     }
 
