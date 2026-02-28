@@ -1,6 +1,7 @@
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -19,7 +20,7 @@ pub struct ProcessInfo {
     pub command: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MonitorTarget {
     Pid(i32),
     Name(String),

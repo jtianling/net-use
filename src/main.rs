@@ -5,7 +5,9 @@ mod tui;
 mod types;
 
 use std::collections::HashMap;
+use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use clap::Parser;
@@ -13,6 +15,7 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 
 use crate::discovery::installed_apps;
@@ -20,6 +23,8 @@ use crate::discovery::running_apps;
 use crate::tui::app_selector::AppSelector;
 use crate::tui::monitor_view::{MonitorAction, MonitorView};
 use crate::types::{AppError, AppInfo, MonitorEvent, MonitorTarget};
+
+const PRESERVED_HISTORY_FILE_NAME: &str = ".net-use-address-history.json";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -40,7 +45,7 @@ pub struct Cli {
     pub no_tui: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct PreservedData {
     ipv4_masked: Vec<String>,
     ipv4_raw: Vec<String>,
@@ -66,6 +71,101 @@ impl PreservedData {
             &self.ipv6_raw,
         );
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PreservedStore {
+    entries: Vec<PreservedStoreEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PreservedStoreEntry {
+    target: MonitorTarget,
+    data: PreservedData,
+}
+
+fn preserved_history_path_from(base_dir: &Path) -> PathBuf {
+    base_dir.join(PRESERVED_HISTORY_FILE_NAME)
+}
+
+fn load_preserved_history() -> HashMap<MonitorTarget, PreservedData> {
+    let cwd = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("Failed to resolve current directory for preserved history: {err}");
+            return HashMap::new();
+        }
+    };
+
+    let path = preserved_history_path_from(&cwd);
+    load_preserved_history_from(&path)
+}
+
+fn load_preserved_history_from(path: &Path) -> HashMap<MonitorTarget, PreservedData> {
+    let raw = match fs::read(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return HashMap::new(),
+        Err(err) => {
+            eprintln!(
+                "Failed to read preserved history from {}: {err}",
+                path.display()
+            );
+            return HashMap::new();
+        }
+    };
+
+    let store: PreservedStore = match serde_json::from_slice(&raw) {
+        Ok(decoded) => decoded,
+        Err(err) => {
+            eprintln!(
+                "Failed to parse preserved history from {}: {err}",
+                path.display()
+            );
+            return HashMap::new();
+        }
+    };
+
+    store
+        .entries
+        .into_iter()
+        .map(|entry| (entry.target, entry.data))
+        .collect()
+}
+
+fn persist_preserved_history(cache: &HashMap<MonitorTarget, PreservedData>) {
+    let cwd = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("Failed to resolve current directory for preserved history: {err}");
+            return;
+        }
+    };
+
+    let path = preserved_history_path_from(&cwd);
+    if let Err(err) = persist_preserved_history_to(&path, cache) {
+        eprintln!("Failed to persist history to {}: {err}", path.display());
+    }
+}
+
+fn persist_preserved_history_to(
+    path: &Path,
+    cache: &HashMap<MonitorTarget, PreservedData>,
+) -> Result<()> {
+    let store = PreservedStore {
+        entries: cache
+            .iter()
+            .map(|(target, data)| PreservedStoreEntry {
+                target: target.clone(),
+                data: data.clone(),
+            })
+            .collect(),
+    };
+
+    let encoded = serde_json::to_vec_pretty(&store)?;
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, encoded)?;
+    fs::rename(&temp_path, path)?;
+    Ok(())
 }
 
 fn check_root() {
@@ -180,7 +280,7 @@ async fn tui_main_loop(
         None => select_app(terminal)?,
     };
 
-    let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> = HashMap::new();
+    let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> = load_preserved_history();
 
     loop {
         let (tx, mut rx) = mpsc::unbounded_channel::<MonitorEvent>();
@@ -199,6 +299,7 @@ async fn tui_main_loop(
         let action = view.run(terminal, &mut rx)?;
 
         preserved_by_target.insert(target.clone(), PreservedData::from_view(&view));
+        persist_preserved_history(&preserved_by_target);
 
         let _ = shutdown_tx.send(true);
         let _ = monitor_handle.await;
@@ -273,8 +374,14 @@ fn target_to_app_info(target: &MonitorTarget) -> AppInfo {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{PreservedData, target_to_app_info};
+    use super::{
+        PreservedData, load_preserved_history_from, persist_preserved_history_to,
+        target_to_app_info,
+    };
     use crate::tui::monitor_view::MonitorView;
     use crate::types::MonitorTarget;
 
@@ -341,5 +448,70 @@ mod tests {
 
         assert_eq!(restored_b.ipv4_masked_data(), &["10.0.1.0/24"]);
         assert!(!restored_b.ipv4_raw_data().contains(&"10.0.0.1".to_string()));
+    }
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("net-use-{label}-{nonce}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn preserved_history_file_round_trip_restores_cached_targets() {
+        let target_a = MonitorTarget::Name("alpha".to_string());
+        let target_b = MonitorTarget::Bundle("com.example.beta".to_string());
+
+        let mut cache: HashMap<MonitorTarget, PreservedData> = HashMap::new();
+        cache.insert(
+            target_a.clone(),
+            PreservedData::from_view(&seeded_view(&target_a, 9, 9)),
+        );
+        cache.insert(
+            target_b.clone(),
+            PreservedData::from_view(&seeded_view(&target_b, 10, 10)),
+        );
+
+        let dir = unique_temp_dir("preserved-history");
+        let history_path = dir.join(".net-use-address-history.json");
+
+        persist_preserved_history_to(&history_path, &cache).unwrap();
+        let loaded = load_preserved_history_from(&history_path);
+
+        let alpha = loaded.get(&target_a).unwrap();
+        assert_eq!(alpha.ipv4_masked, vec!["10.0.9.0/24".to_string()]);
+        assert_eq!(alpha.ipv6_masked, vec!["2001:db8:9::/64".to_string()]);
+
+        let beta = loaded.get(&target_b).unwrap();
+        assert_eq!(beta.ipv4_raw, vec!["10.0.10.1", "10.0.10.2"]);
+        assert_eq!(beta.ipv6_raw, vec!["2001:db8:a::1", "2001:db8:a::2"]);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn load_preserved_history_missing_file_returns_empty_cache() {
+        let dir = unique_temp_dir("missing-history");
+        let history_path = dir.join(".net-use-address-history.json");
+
+        let loaded = load_preserved_history_from(&history_path);
+        assert!(loaded.is_empty());
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn load_preserved_history_invalid_json_returns_empty_cache() {
+        let dir = unique_temp_dir("invalid-history");
+        let history_path = dir.join(".net-use-address-history.json");
+        fs::write(&history_path, b"{not-valid-json").unwrap();
+
+        let loaded = load_preserved_history_from(&history_path);
+        assert!(loaded.is_empty());
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }
