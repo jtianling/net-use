@@ -199,11 +199,13 @@ impl AppSelector {
         frame.render_widget(help, chunks[2]);
     }
 
-    pub fn run(
+    pub fn run_with_tick(
         &mut self,
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+        mut on_tick: impl FnMut(),
     ) -> Result<Option<AppInfo>> {
         loop {
+            on_tick();
             terminal.draw(|f| self.render(f))?;
 
             if let Some(evt) = poll_event(Duration::from_millis(100))? {

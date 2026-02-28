@@ -78,6 +78,7 @@ pub struct MonitorView {
     last_new_ip: Option<Instant>,
     status_message: Option<(String, Instant)>,
     target_active: bool,
+    paused: bool,
     address_display_mode: AddressDisplayMode,
     address_order_mode: AddressOrderMode,
     ipv4_scroll_offset: usize,
@@ -102,6 +103,7 @@ impl MonitorView {
             last_new_ip: None,
             status_message: None,
             target_active: false,
+            paused: false,
             address_display_mode: AddressDisplayMode::Masked,
             address_order_mode: AddressOrderMode::Time,
             ipv4_scroll_offset: 0,
@@ -159,6 +161,32 @@ impl MonitorView {
         &self.ipv6_raw_addresses
     }
 
+    pub fn set_paused(&mut self, paused: bool) {
+        if paused {
+            self.target_active = false;
+            self.processes.clear();
+            let message = if self.paused {
+                "Monitoring already paused"
+            } else {
+                "Monitoring paused"
+            };
+            self.status_message = Some((message.to_string(), Instant::now()));
+        } else if self.paused {
+            self.status_message = Some(("Monitoring resumed".to_string(), Instant::now()));
+        }
+        self.paused = paused;
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    pub fn drain_events(&mut self, rx: &mut mpsc::UnboundedReceiver<MonitorEvent>) {
+        while let Ok(event) = rx.try_recv() {
+            self.handle_event(event);
+        }
+    }
+
     fn handle_event(&mut self, event: MonitorEvent) {
         match event {
             MonitorEvent::NewAddress(addr) => {
@@ -198,6 +226,7 @@ impl MonitorView {
                 self.processes.retain(|p| p.pid != pid);
             }
             MonitorEvent::TargetFound => {
+                self.paused = false;
                 self.target_active = true;
             }
             MonitorEvent::TargetLost => {
@@ -282,7 +311,9 @@ impl MonitorView {
         let minutes = elapsed.as_secs() / 60;
         let seconds = elapsed.as_secs() % 60;
 
-        let status_indicator = if self.target_active {
+        let status_indicator = if self.paused {
+            Span::styled("◼ Paused", Style::default().fg(Color::Red))
+        } else if self.target_active {
             Span::styled("● Monitoring", Style::default().fg(Color::Green))
         } else {
             Span::styled("○ Waiting", Style::default().fg(Color::Yellow))
@@ -563,7 +594,7 @@ impl MonitorView {
             Span::styled(status_msg, Style::default().fg(Color::Green)),
         ]);
         let line2 = Line::from(vec![Span::styled(
-            " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
+            " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  [P]ause  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit",
             Style::default().fg(Color::DarkGray),
         )]);
 
@@ -574,11 +605,13 @@ impl MonitorView {
     pub fn run(
         &mut self,
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
-        rx: &mut mpsc::UnboundedReceiver<MonitorEvent>,
+        mut rx: Option<&mut mpsc::UnboundedReceiver<MonitorEvent>>,
+        mut on_tick: impl FnMut(),
     ) -> Result<MonitorAction> {
         loop {
-            while let Ok(event) = rx.try_recv() {
-                self.handle_event(event);
+            on_tick();
+            if let Some(receiver) = rx.as_deref_mut() {
+                self.drain_events(receiver);
             }
 
             terminal.draw(|frame| self.render(frame))?;
@@ -602,6 +635,7 @@ impl MonitorView {
     fn handle_key_code(&mut self, key: KeyCode) -> Option<MonitorAction> {
         match key {
             KeyCode::Esc => Some(MonitorAction::Back),
+            KeyCode::Char('p') | KeyCode::Char('P') => Some(MonitorAction::PauseTarget),
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 self.toggle_address_display_mode();
                 None
@@ -645,9 +679,11 @@ impl MonitorView {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonitorAction {
     Quit,
     Back,
+    PauseTarget,
 }
 
 fn chrono_timestamp() -> String {
@@ -690,7 +726,8 @@ mod tests {
     use crate::types::ProcessInfo;
 
     use super::{
-        AddressDisplayMode, AddressOrderMode, AppInfo, MonitorView, format_process_summary,
+        AddressDisplayMode, AddressOrderMode, AppInfo, MonitorAction, MonitorView,
+        format_process_summary,
     };
 
     fn test_app_info() -> AppInfo {
@@ -800,6 +837,37 @@ mod tests {
         view.handle_key_code(KeyCode::Up);
         assert_eq!(view.ipv4_scroll_offset, 1);
         assert_eq!(view.ipv6_scroll_offset, ipv6_max.saturating_sub(1));
+    }
+
+    #[test]
+    fn test_pause_key_returns_pause_action() {
+        let mut view = MonitorView::new(test_app_info());
+        assert_eq!(
+            view.handle_key_code(KeyCode::Char('p')),
+            Some(MonitorAction::PauseTarget)
+        );
+        assert_eq!(
+            view.handle_key_code(KeyCode::Char('P')),
+            Some(MonitorAction::PauseTarget)
+        );
+    }
+
+    #[test]
+    fn test_escape_returns_back_action() {
+        let mut view = MonitorView::new(test_app_info());
+        assert_eq!(
+            view.handle_key_code(KeyCode::Esc),
+            Some(MonitorAction::Back)
+        );
+    }
+
+    #[test]
+    fn test_set_paused_is_idempotent() {
+        let mut view = MonitorView::new(test_app_info());
+        view.set_paused(true);
+        assert!(view.is_paused());
+        view.set_paused(true);
+        assert!(view.is_paused());
     }
 
     #[test]

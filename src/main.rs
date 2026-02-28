@@ -17,6 +17,7 @@ use crossterm::terminal::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 
 use crate::discovery::installed_apps;
 use crate::discovery::running_apps;
@@ -271,43 +272,155 @@ async fn run_tui_mode(initial_target: Option<MonitorTarget>) -> Result<()> {
     result
 }
 
+struct RunningMonitor {
+    rx: mpsc::UnboundedReceiver<MonitorEvent>,
+    shutdown_tx: watch::Sender<bool>,
+    handle: JoinHandle<()>,
+}
+
+struct MonitorSession {
+    view: MonitorView,
+    runner: Option<RunningMonitor>,
+}
+
+impl MonitorSession {
+    fn new(target: &MonitorTarget, preserved: Option<&PreservedData>) -> Self {
+        let mut view = MonitorView::new(target_to_app_info(target));
+        if let Some(saved) = preserved {
+            saved.restore_into(&mut view);
+        }
+        Self { view, runner: None }
+    }
+
+    fn ensure_running(&mut self, target: &MonitorTarget) {
+        if self.runner.is_some() {
+            self.view.set_paused(false);
+            return;
+        }
+
+        let (tx, rx) = mpsc::unbounded_channel::<MonitorEvent>();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let handle = tokio::spawn(app::run_monitor_loop(target.clone(), tx, shutdown_rx));
+        self.runner = Some(RunningMonitor {
+            rx,
+            shutdown_tx,
+            handle,
+        });
+        self.view.set_paused(false);
+    }
+
+    fn drain_events(&mut self) {
+        if let Some(runner) = self.runner.as_mut() {
+            self.view.drain_events(&mut runner.rx);
+        }
+    }
+
+    async fn pause(&mut self) {
+        if let Some(mut runner) = self.runner.take() {
+            self.view.drain_events(&mut runner.rx);
+            let _ = runner.shutdown_tx.send(true);
+            let _ = runner.handle.await;
+            self.view.drain_events(&mut runner.rx);
+        }
+        self.view.set_paused(true);
+    }
+
+    async fn shutdown(&mut self) {
+        if let Some(mut runner) = self.runner.take() {
+            self.view.drain_events(&mut runner.rx);
+            let _ = runner.shutdown_tx.send(true);
+            let _ = runner.handle.await;
+            self.view.drain_events(&mut runner.rx);
+        }
+    }
+}
+
+fn ensure_session_exists<'a>(
+    sessions: &'a mut HashMap<MonitorTarget, MonitorSession>,
+    preserved_by_target: &HashMap<MonitorTarget, PreservedData>,
+    target: &MonitorTarget,
+) -> &'a mut MonitorSession {
+    sessions
+        .entry(target.clone())
+        .or_insert_with(|| MonitorSession::new(target, preserved_by_target.get(target)))
+}
+
+fn drain_all_sessions(sessions: &mut HashMap<MonitorTarget, MonitorSession>) {
+    for session in sessions.values_mut() {
+        session.drain_events();
+    }
+}
+
+fn sync_preserved_cache(
+    sessions: &mut HashMap<MonitorTarget, MonitorSession>,
+    preserved_by_target: &mut HashMap<MonitorTarget, PreservedData>,
+) {
+    drain_all_sessions(sessions);
+    for (target, session) in sessions.iter() {
+        preserved_by_target.insert(target.clone(), PreservedData::from_view(&session.view));
+    }
+}
+
+async fn shutdown_all_sessions(sessions: &mut HashMap<MonitorTarget, MonitorSession>) {
+    for session in sessions.values_mut() {
+        session.shutdown().await;
+    }
+}
+
 async fn tui_main_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
     initial_target: Option<MonitorTarget>,
 ) -> Result<()> {
+    let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> = load_preserved_history();
+    let mut sessions: HashMap<MonitorTarget, MonitorSession> = HashMap::new();
+
     let mut target = match initial_target {
         Some(t) => t,
-        None => select_app(terminal)?,
+        None => select_app(terminal, &mut sessions)?,
     };
-
-    let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> = load_preserved_history();
+    let mut resume_on_enter = true;
 
     loop {
-        let (tx, mut rx) = mpsc::unbounded_channel::<MonitorEvent>();
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut active_session = {
+            let session = ensure_session_exists(&mut sessions, &preserved_by_target, &target);
+            if resume_on_enter {
+                session.ensure_running(&target);
+            }
+            sessions
+                .remove(&target)
+                .expect("active target session should exist")
+        };
 
-        let target_clone = target.clone();
-        let monitor_handle = tokio::spawn(app::run_monitor_loop(target_clone, tx, shutdown_rx));
-
-        let app_info = target_to_app_info(&target);
-        let mut view = MonitorView::new(app_info);
-
-        if let Some(saved) = preserved_by_target.get(&target) {
-            saved.restore_into(&mut view);
-        }
-
-        let action = view.run(terminal, &mut rx)?;
-
-        preserved_by_target.insert(target.clone(), PreservedData::from_view(&view));
-        persist_preserved_history(&preserved_by_target);
-
-        let _ = shutdown_tx.send(true);
-        let _ = monitor_handle.await;
+        let action = {
+            let rx = active_session.runner.as_mut().map(|runner| &mut runner.rx);
+            active_session
+                .view
+                .run(terminal, rx, || drain_all_sessions(&mut sessions))?
+        };
+        active_session.drain_events();
 
         match action {
-            MonitorAction::Quit => return Ok(()),
+            MonitorAction::Quit => {
+                active_session.shutdown().await;
+                sessions.insert(target.clone(), active_session);
+                shutdown_all_sessions(&mut sessions).await;
+                sync_preserved_cache(&mut sessions, &mut preserved_by_target);
+                persist_preserved_history(&preserved_by_target);
+                return Ok(());
+            }
             MonitorAction::Back => {
-                target = select_app(terminal)?;
+                sessions.insert(target.clone(), active_session);
+                sync_preserved_cache(&mut sessions, &mut preserved_by_target);
+                persist_preserved_history(&preserved_by_target);
+                target = select_app(terminal, &mut sessions)?;
+                resume_on_enter = true;
+            }
+            MonitorAction::PauseTarget => {
+                active_session.pause().await;
+                sessions.insert(target.clone(), active_session);
+                sync_preserved_cache(&mut sessions, &mut preserved_by_target);
+                persist_preserved_history(&preserved_by_target);
+                resume_on_enter = false;
             }
         }
     }
@@ -315,12 +428,13 @@ async fn tui_main_loop(
 
 fn select_app(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+    sessions: &mut HashMap<MonitorTarget, MonitorSession>,
 ) -> Result<MonitorTarget> {
     let installed = installed_apps::discover_installed_apps();
     let running = running_apps::discover_running_apps(&installed);
     let merged = running_apps::merge_app_lists(installed, running);
     let mut selector = AppSelector::new(merged);
-    match selector.run(terminal)? {
+    match selector.run_with_tick(terminal, || drain_all_sessions(sessions))? {
         Some(app) => Ok(app_to_target(&app)),
         None => bail!("No app selected"),
     }
