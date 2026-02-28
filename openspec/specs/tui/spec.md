@@ -7,7 +7,7 @@ Provide an interactive terminal user interface for app selection, real-time moni
 ## Requirements
 
 ### Requirement: App selection screen
-The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore cached address history when a previously monitored target is selected again.
+The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again.
 
 #### Scenario: User opens the tool without --pid/--name/--bundle
 - **WHEN** user runs `sudo net-use` without target arguments
@@ -25,9 +25,13 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 - **WHEN** user highlights a CLI process entry and presses Enter
 - **THEN** system starts monitoring that PID as the target and shows it in the monitoring screen header
 
-#### Scenario: User reselects a previously monitored target
-- **WHEN** user returns to the selection screen and selects a target that has cached history from the current session
+#### Scenario: User reselects a previously monitored target after restart
+- **WHEN** user starts `net-use` in a working directory that contains persisted history and selects a target with saved records
 - **THEN** system restores that target's previously discovered IPv4/IPv6 masked and raw address lists before appending newly collected results
+
+#### Scenario: Persisted history file is missing or invalid
+- **WHEN** system cannot read or parse the persisted history file in the working directory
+- **THEN** system continues to app selection and monitoring with empty history without crashing
 
 ### Requirement: Monitoring screen
 The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible.
@@ -102,11 +106,11 @@ The system SHALL allow the user to copy the current IP list to the system clipbo
 - **THEN** system copies all discovered IPv4 subnets and canonical IPv6 `/64` entries (one per line) to the macOS clipboard
 
 ### Requirement: Navigation between screens
-The system SHALL allow the user to return to the app selection screen from the monitoring screen, and SHALL preserve discovered address history per target for later restoration.
+The system SHALL allow the user to return to the app selection screen from the monitoring screen, and SHALL persist discovered address history per target to a file in the command working directory for later restoration.
 
 #### Scenario: User presses Escape during monitoring
 - **WHEN** user presses Esc on the monitoring screen
-- **THEN** system stops monitoring, stores collected addresses under the current target identity, and returns to the app selection screen
+- **THEN** system stops monitoring, stores collected addresses under the current target identity, writes updated history to the working-directory persistence file, and returns to the app selection screen
 
 #### Scenario: User switches to a different target after going back
 - **WHEN** user returns from target A and then selects target B
