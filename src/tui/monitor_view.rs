@@ -732,7 +732,7 @@ mod tests {
 
     use crossterm::event::KeyCode;
 
-    use crate::types::{DiscoveredAddress, MonitorEvent};
+    use crate::types::{AppMonitorState, DiscoveredAddress, MonitorEvent};
 
     use crate::types::ProcessInfo;
 
@@ -748,6 +748,7 @@ mod tests {
             executable_name: "test".to_string(),
             app_path: None,
             pid: None,
+            monitor_state: AppMonitorState::Unmonitored,
         }
     }
 

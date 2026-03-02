@@ -23,7 +23,7 @@ use crate::discovery::installed_apps;
 use crate::discovery::running_apps;
 use crate::tui::app_selector::AppSelector;
 use crate::tui::monitor_view::{MonitorAction, MonitorView};
-use crate::types::{AppError, AppInfo, MonitorEvent, MonitorTarget};
+use crate::types::{AppError, AppInfo, AppMonitorState, MonitorEvent, MonitorTarget};
 
 const PRESERVED_HISTORY_FILE_NAME: &str = ".net-use-address-history.json";
 
@@ -437,12 +437,29 @@ fn select_app(
 ) -> Result<MonitorTarget> {
     let installed = installed_apps::discover_installed_apps();
     let running = running_apps::discover_running_apps(&installed);
-    let merged = running_apps::merge_app_lists(installed, running);
+    let merged =
+        annotate_app_monitor_state(running_apps::merge_app_lists(installed, running), sessions);
     let mut selector = AppSelector::new(merged);
     match selector.run_with_tick(terminal, || drain_all_sessions(sessions))? {
         Some(app) => Ok(app_to_target(&app)),
         None => bail!("No app selected"),
     }
+}
+
+fn annotate_app_monitor_state(
+    mut apps: Vec<AppInfo>,
+    sessions: &HashMap<MonitorTarget, MonitorSession>,
+) -> Vec<AppInfo> {
+    for app in &mut apps {
+        let target = app_to_target(app);
+        app.monitor_state = match sessions.get(&target) {
+            Some(session) if session.runner.is_some() => AppMonitorState::Monitoring,
+            Some(session) if session.view.is_paused() => AppMonitorState::Paused,
+            Some(_) => AppMonitorState::Unmonitored,
+            None => AppMonitorState::Unmonitored,
+        };
+    }
+    apps
 }
 
 fn app_to_target(app: &AppInfo) -> MonitorTarget {
@@ -466,6 +483,7 @@ fn target_to_app_info(target: &MonitorTarget) -> AppInfo {
                 executable_name: String::new(),
                 app_path: None,
                 pid: Some(*pid),
+                monitor_state: AppMonitorState::Unmonitored,
             }
         }
         MonitorTarget::Name(name) => AppInfo {
@@ -474,6 +492,7 @@ fn target_to_app_info(target: &MonitorTarget) -> AppInfo {
             executable_name: name.clone(),
             app_path: None,
             pid: None,
+            monitor_state: AppMonitorState::Unmonitored,
         },
         MonitorTarget::Bundle(bundle_id) => {
             let display_name = installed_apps::resolve_bundle_executable(bundle_id)
@@ -485,6 +504,7 @@ fn target_to_app_info(target: &MonitorTarget) -> AppInfo {
                 executable_name: String::new(),
                 app_path: None,
                 pid: None,
+                monitor_state: AppMonitorState::Unmonitored,
             }
         }
     }

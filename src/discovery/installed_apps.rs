@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::types::AppInfo;
+use crate::types::{AppInfo, AppMonitorState};
 
 fn scan_app_dir(dir: &Path) -> Vec<AppInfo> {
     let entries = match fs::read_dir(dir) {
@@ -56,6 +56,7 @@ fn parse_app_bundle(app_path: &Path) -> Option<AppInfo> {
         executable_name,
         app_path: Some(app_path.to_string_lossy().into_owned()),
         pid: None,
+        monitor_state: AppMonitorState::Unmonitored,
     })
 }
 

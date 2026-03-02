@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::monitor::process_tree;
-use crate::types::AppInfo;
+use crate::types::{AppInfo, AppMonitorState};
 
 #[derive(Debug, Clone)]
 struct ProcessSnapshot {
@@ -47,6 +47,7 @@ fn collect_running_apps(installed: &[AppInfo], snapshots: &[ProcessSnapshot]) ->
                     executable_name: app.executable_name.clone(),
                     app_path: app.app_path.clone(),
                     pid: Some(snapshot.pid),
+                    monitor_state: AppMonitorState::Unmonitored,
                 });
             }
 
@@ -56,6 +57,7 @@ fn collect_running_apps(installed: &[AppInfo], snapshots: &[ProcessSnapshot]) ->
                 executable_name: name.clone(),
                 app_path: None,
                 pid: Some(snapshot.pid),
+                monitor_state: AppMonitorState::Unmonitored,
             })
         })
         .collect();
@@ -109,7 +111,7 @@ pub fn merge_app_lists(installed: Vec<AppInfo>, running: Vec<AppInfo>) -> Vec<Ap
 #[cfg(test)]
 mod tests {
     use super::{ProcessSnapshot, collect_running_apps, merge_app_lists};
-    use crate::types::AppInfo;
+    use crate::types::{AppInfo, AppMonitorState};
 
     fn installed_app(name: &str, bundle: Option<&str>, app_path: Option<&str>) -> AppInfo {
         AppInfo {
@@ -118,6 +120,7 @@ mod tests {
             executable_name: name.to_string(),
             app_path: app_path.map(ToOwned::to_owned),
             pid: None,
+            monitor_state: AppMonitorState::Unmonitored,
         }
     }
 
