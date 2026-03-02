@@ -1,63 +1,72 @@
 # net-use
 
-macOS 上的应用网络连接监控工具.  通过 `proc_pidfdinfo` 系统调用实时追踪指定 app 及其子进程树的所有 TCP/UDP 远端 IP, 输出去重后的地址列表, 适用于构建防火墙白名单.
+[中文](README.zh-CN.md)
 
-## 功能
+A per-app network connection monitor for macOS. Uses `proc_pidfdinfo` to track all TCP/UDP remote IPs of a target app and its entire process tree in real time, outputting a deduplicated address list — ideal for building firewall whitelists.
 
-- 监控指定 app 的完整进程树 (含所有子进程)
-- IPv4 地址聚合为 /24 子网, IPv6 保留完整地址
-- 自动去重, 仅输出新发现的地址
-- TUI 交互模式: 浏览已安装应用, 筛选, 实时查看监控结果
-- CLI 模式: 纯文本输出, 可管道到文件或其他命令
-- 支持监控尚未启动的 app, 检测到启动后自动开始采集
-- app 退出后保留数据, 重新出现时累加
-- 一键导出到文件 (E) 或复制到剪贴板 (C)
+## Features
 
-## 安装
+- Monitor the full process tree of a target app (including all child processes)
+- Aggregate IPv4 addresses into /24 subnets; keep full IPv6 addresses
+- Automatic deduplication — only newly discovered addresses are reported
+- TUI interactive mode: browse installed apps, filter, and view live monitoring results
+- CLI mode: plain text output, pipe-friendly for files or other commands
+- Monitor apps that haven't started yet — collection begins automatically on launch
+- Preserve data after app exit, accumulate on restart
+- One-key export to file (`E`) or copy to clipboard (`C`)
 
-需要 Rust 1.85+ (edition 2024).
+## Installation
+
+Requires Rust 1.85+ (edition 2024).
+
+```bash
+cargo install net-use
+```
+
+Or build from source:
 
 ```bash
 cargo build --release
 ```
 
-编译产物在 `target/release/net-use`.
+The binary will be at `target/release/net-use`.
 
-## 使用
+## Usage
 
-需要 root 权限才能读取进程 socket 信息.
+Root privileges are required to read process socket information.
 
-### TUI 模式
-
-```bash
-sudo ./target/release/net-use
-```
-
-启动后进入应用选择界面, 支持输入文字筛选, 回车选择后进入监控界面.
-
-快捷键:
-- `E` - 导出地址列表到文件
-- `C` - 复制地址列表到剪贴板
-- `Esc` - 返回应用选择
-- `Q` - 退出
-
-### CLI 模式
+### TUI Mode
 
 ```bash
-# 按 Bundle ID 监控
-sudo ./target/release/net-use --bundle com.google.Chrome --no-tui
-
-# 按进程名监控
-sudo ./target/release/net-use --name curl --no-tui
-
-# 按 PID 监控
-sudo ./target/release/net-use --pid 1234 --no-tui
-
-# 输出到文件
-sudo ./target/release/net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt
+sudo net-use
 ```
 
-输出示例:
+Launches an app selection screen where you can type to filter, then press Enter to start monitoring.
+
+Keybindings:
+
+- `E` — Export address list to file
+- `C` — Copy address list to clipboard
+- `Esc` — Return to app selection
+- `Q` — Quit
+
+### CLI Mode
+
+```bash
+# Monitor by Bundle ID
+sudo net-use --bundle com.google.Chrome --no-tui
+
+# Monitor by process name
+sudo net-use --name curl --no-tui
+
+# Monitor by PID
+sudo net-use --pid 1234 --no-tui
+
+# Output to file
+sudo net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt
+```
+
+Example output:
 
 ```
 142.250.80.0/24
@@ -65,19 +74,19 @@ sudo ./target/release/net-use --bundle com.google.Chrome --no-tui > chrome-ips.t
 2607:f8b0:4004:800::200e
 ```
 
-## 工作原理
+## How It Works
 
-1. 通过 `proc_listallpids` 和 `proc_pidpath` 定位目标进程
-2. 通过 `proc_listchildpids` 递归发现完整子进程树
-3. 每 200ms 轮询一次, 通过 `proc_pidfdinfo(PROC_PIDFDSOCKETINFO)` 枚举所有 socket fd
-4. 提取远端 IP 地址, 过滤 loopback 和 link-local, 去重后输出
+1. Locate the target process via `proc_listallpids` and `proc_pidpath`
+2. Recursively discover the full child process tree via `proc_listchildpids`
+3. Poll every 200ms, enumerating all socket file descriptors with `proc_pidfdinfo(PROC_PIDFDSOCKETINFO)`
+4. Extract remote IP addresses, filter out loopback and link-local, deduplicate, and output
 
-## 限制
+## Limitations
 
-- 仅支持 macOS
-- 需要 root 权限 (`sudo`)
-- 200ms 轮询间隔下, 极短生命周期的连接可能漏掉
-- 通过 launchd 启动的 XPC service 可能不在进程树中
+- macOS only
+- Requires root privileges (`sudo`)
+- Very short-lived connections may be missed at the 200ms polling interval
+- XPC services launched via launchd may not appear in the process tree
 
 ## License
 

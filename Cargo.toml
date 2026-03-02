@@ -2,6 +2,15 @@
 name = "net-use"
 version = "0.1.0"
 edition = "2024"
+authors = ["jtianling <jtianling@gmail.com>"]
+description = "Monitor per-app network connections on macOS via proc_pidfdinfo, with TUI and CLI modes for building firewall whitelists"
+license = "MIT"
+repository = "https://github.com/jtianling/net-use"
+homepage = "https://github.com/jtianling/net-use"
+readme = "README.md"
+keywords = ["network", "monitor", "macos", "firewall", "tui"]
+categories = ["command-line-utilities", "network-programming"]
+rust-version = "1.85"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
