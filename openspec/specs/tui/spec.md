@@ -7,7 +7,7 @@ Provide an interactive terminal user interface for app selection, real-time moni
 ## Requirements
 
 ### Requirement: App selection screen
-The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again. The selector SHALL allow re-entering an already-active target monitor session without discarding in-memory collected data for that target.
+The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again. The selector SHALL allow re-entering an already-active target monitor session without discarding in-memory collected data for that target. The selector SHALL also show each row's current monitoring lifecycle state for the current session.
 
 #### Scenario: User opens the tool without --pid/--name/--bundle
 - **WHEN** user runs `sudo net-use` without target arguments
@@ -36,6 +36,14 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 #### Scenario: Persisted history file is missing or invalid
 - **WHEN** system cannot read or parse the persisted history file in the working directory
 - **THEN** system continues to app selection and monitoring with empty history without crashing
+
+#### Scenario: Selector marks actively monitored targets
+- **WHEN** target A has an active monitor session and user returns to the app selection screen
+- **THEN** target A's row shows a monitoring-state indicator representing active monitoring
+
+#### Scenario: Selector marks paused and unmonitored targets distinctly
+- **WHEN** target A is paused and target B has no session in the current run
+- **THEN** target A and target B rows show different monitoring-state indicators so paused and never-monitored states are distinguishable
 
 ### Requirement: Monitoring screen
 The system SHALL display real-time monitoring status including tracked processes with PID, process name, and command summary when available, and discovered IPv4 and IPv6 addresses in switchable display and ordering modes. When the address list exceeds the monitoring viewport, the system SHALL provide bounded vertical scrolling for the address region while keeping header, status, and footer context visible. The monitoring screen SHALL support per-target pause/resume toggle via `p` and SHALL keep collected addresses visible after pause.

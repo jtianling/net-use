@@ -177,7 +177,6 @@ impl MonitorView {
         self.paused = paused;
     }
 
-    #[cfg(test)]
     pub fn is_paused(&self) -> bool {
         self.paused
     }
