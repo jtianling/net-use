@@ -11,6 +11,14 @@ pub struct AppInfo {
     pub executable_name: String,
     pub app_path: Option<String>,
     pub pid: Option<i32>,
+    pub monitor_state: AppMonitorState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppMonitorState {
+    Unmonitored,
+    Monitoring,
+    Paused,
 }
 
 #[derive(Debug, Clone)]

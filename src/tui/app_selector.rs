@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::tui::event::{AppEvent, is_quit, poll_event};
-use crate::types::AppInfo;
+use crate::types::{AppInfo, AppMonitorState};
 
 pub struct AppSelector {
     apps: Vec<AppInfo>,
@@ -75,6 +75,50 @@ impl AppSelector {
             (false, true) => "APP",
             (false, false) => "UNK",
         }
+    }
+
+    fn monitor_state_label(app: &AppInfo) -> &'static str {
+        match app.monitor_state {
+            AppMonitorState::Monitoring => "MONITORING",
+            AppMonitorState::Paused => "PAUSED",
+            AppMonitorState::Unmonitored => "IDLE",
+        }
+    }
+
+    fn monitor_state_style(state: AppMonitorState) -> Style {
+        match state {
+            AppMonitorState::Monitoring => Style::default().fg(Color::Green),
+            AppMonitorState::Paused => Style::default().fg(Color::Yellow),
+            AppMonitorState::Unmonitored => Style::default().fg(Color::DarkGray),
+        }
+    }
+
+    fn row_line(app: &AppInfo) -> Line<'static> {
+        let status = if app.pid.is_some() {
+            Span::styled("● ", Style::default().fg(Color::Green))
+        } else {
+            Span::styled("○ ", Style::default().fg(Color::DarkGray))
+        };
+
+        let name = Span::styled(app.display_name.clone(), Style::default().fg(Color::White));
+        let source = Span::styled(
+            format!(" [{}]", Self::source_label(app)),
+            Style::default().fg(Color::Yellow),
+        );
+        let monitor = Span::styled(
+            format!(" [{}]", Self::monitor_state_label(app)),
+            Self::monitor_state_style(app.monitor_state),
+        );
+        let bundle = Span::styled(
+            format!("  {}", app.bundle_id.as_deref().unwrap_or("--")),
+            Style::default().fg(Color::DarkGray),
+        );
+        let pid_text = match app.pid {
+            Some(pid) => Span::styled(format!("  PID {pid}"), Style::default().fg(Color::Cyan)),
+            None => Span::raw(""),
+        };
+
+        Line::from(vec![status, name, source, monitor, bundle, pid_text])
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<SelectorAction> {
@@ -153,31 +197,7 @@ impl AppSelector {
             .iter()
             .map(|&idx| {
                 let app = &self.apps[idx];
-                let status = if app.pid.is_some() {
-                    Span::styled("● ", Style::default().fg(Color::Green))
-                } else {
-                    Span::styled("○ ", Style::default().fg(Color::DarkGray))
-                };
-
-                let name = Span::styled(&app.display_name, Style::default().fg(Color::White));
-                let source = Span::styled(
-                    format!(" [{}]", Self::source_label(app)),
-                    Style::default().fg(Color::Yellow),
-                );
-
-                let bundle = Span::styled(
-                    format!("  {}", app.bundle_id.as_deref().unwrap_or("--")),
-                    Style::default().fg(Color::DarkGray),
-                );
-
-                let pid_text = match app.pid {
-                    Some(pid) => {
-                        Span::styled(format!("  PID {pid}"), Style::default().fg(Color::Cyan))
-                    }
-                    None => Span::raw(""),
-                };
-
-                ListItem::new(Line::from(vec![status, name, source, bundle, pid_text]))
+                ListItem::new(Self::row_line(app))
             })
             .collect();
 
@@ -228,4 +248,53 @@ impl AppSelector {
 enum SelectorAction {
     Quit,
     Selected(AppInfo),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSelector;
+    use crate::types::{AppInfo, AppMonitorState};
+
+    fn test_app(state: AppMonitorState) -> AppInfo {
+        AppInfo {
+            display_name: "Chrome".to_string(),
+            bundle_id: Some("com.google.Chrome".to_string()),
+            executable_name: "Chrome".to_string(),
+            app_path: Some("/Applications/Google Chrome.app".to_string()),
+            pid: Some(1234),
+            monitor_state: state,
+        }
+    }
+
+    #[test]
+    fn test_row_displays_monitoring_state_label() {
+        let monitoring = AppSelector::row_line(&test_app(AppMonitorState::Monitoring)).to_string();
+        let paused = AppSelector::row_line(&test_app(AppMonitorState::Paused)).to_string();
+        let idle = AppSelector::row_line(&test_app(AppMonitorState::Unmonitored)).to_string();
+
+        assert!(monitoring.contains("[MONITORING]"));
+        assert!(paused.contains("[PAUSED]"));
+        assert!(idle.contains("[IDLE]"));
+    }
+
+    #[test]
+    fn test_filter_behavior_unchanged_with_monitor_state() {
+        let mut selector = AppSelector::new(vec![
+            test_app(AppMonitorState::Monitoring),
+            AppInfo {
+                display_name: "curl".to_string(),
+                bundle_id: None,
+                executable_name: "curl".to_string(),
+                app_path: None,
+                pid: Some(42),
+                monitor_state: AppMonitorState::Unmonitored,
+            },
+        ]);
+
+        selector.filter_text = "cur".to_string();
+        selector.apply_filter();
+
+        assert_eq!(selector.filtered.len(), 1);
+        assert_eq!(selector.filtered[0], 1);
+    }
 }
