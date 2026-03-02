@@ -268,15 +268,7 @@ impl MonitorView {
     }
 
     fn copy_to_clipboard(&self) -> Result<()> {
-        let mut content = String::new();
-        for subnet in &self.ipv4_masked_subnets {
-            content.push_str(subnet);
-            content.push('\n');
-        }
-        for subnet in &self.ipv6_masked_addresses {
-            content.push_str(subnet);
-            content.push('\n');
-        }
+        let content = self.clipboard_content();
 
         let mut child = Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
@@ -286,6 +278,19 @@ impl MonitorView {
         }
         child.wait()?;
         Ok(())
+    }
+
+    fn clipboard_content(&self) -> String {
+        let mut content = String::new();
+        for entry in self.current_ipv4_entries() {
+            content.push_str(entry);
+            content.push('\n');
+        }
+        for entry in self.current_ipv6_entries() {
+            content.push_str(entry);
+            content.push('\n');
+        }
+        content
     }
 
     fn render(&mut self, frame: &mut Frame) {
@@ -597,7 +602,7 @@ impl MonitorView {
         let pause_label = if self.paused { "[P]Resume" } else { "[P]ause" };
         let line2 = Line::from(vec![Span::styled(
             format!(
-                " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  {pause_label}  [E]xport(masked)  [C]opy(masked)  [Esc]Back  [Q]uit"
+                " [Up/Down]Scroll IPv4  [J/K]Scroll IPv6  [S]witch  [O]rder  {pause_label}  [E]xport(masked)  [C]opy(current view)  [Esc]Back  [Q]uit"
             ),
             Style::default().fg(Color::DarkGray),
         )]);
@@ -1039,6 +1044,74 @@ mod tests {
         assert_eq!(view.ipv4_raw_data().len(), 2);
         assert_eq!(view.ipv6_masked_data(), &["2607:6bc0::/64"]);
         assert_eq!(view.ipv6_raw_data().len(), 2);
+    }
+
+    #[test]
+    fn test_clipboard_content_respects_current_view_mode_and_order_mode() {
+        let mut view = MonitorView::new(test_app_info());
+
+        view.restore_data(
+            &[
+                "10.0.2.0/24".to_string(),
+                "10.0.10.0/24".to_string(),
+                "10.0.1.0/24".to_string(),
+            ],
+            &[
+                "1.1.1.2".to_string(),
+                "1.1.1.10".to_string(),
+                "1.1.1.1".to_string(),
+            ],
+            &[
+                "2001:db8:c::/64".to_string(),
+                "2001:db8:a::/64".to_string(),
+                "2001:db8:b::/64".to_string(),
+            ],
+            &[
+                "2001:db8:c::1".to_string(),
+                "2001:db8:a::1".to_string(),
+                "2001:db8:b::1".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            view.clipboard_content(),
+            concat!(
+                "10.0.2.0/24\n",
+                "10.0.10.0/24\n",
+                "10.0.1.0/24\n",
+                "2001:db8:c::/64\n",
+                "2001:db8:a::/64\n",
+                "2001:db8:b::/64\n"
+            )
+        );
+
+        view.toggle_address_order_mode();
+
+        assert_eq!(
+            view.clipboard_content(),
+            concat!(
+                "10.0.1.0/24\n",
+                "10.0.2.0/24\n",
+                "10.0.10.0/24\n",
+                "2001:db8:a::/64\n",
+                "2001:db8:b::/64\n",
+                "2001:db8:c::/64\n"
+            )
+        );
+
+        view.toggle_address_display_mode();
+
+        assert_eq!(
+            view.clipboard_content(),
+            concat!(
+                "1.1.1.1\n",
+                "1.1.1.2\n",
+                "1.1.1.10\n",
+                "2001:db8:a::1\n",
+                "2001:db8:b::1\n",
+                "2001:db8:c::1\n"
+            )
+        );
     }
 
     #[test]
