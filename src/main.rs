@@ -85,20 +85,12 @@ struct PreservedStoreEntry {
     data: PreservedData,
 }
 
-fn preserved_history_path_from(base_dir: &Path) -> PathBuf {
-    base_dir.join(PRESERVED_HISTORY_FILE_NAME)
+fn preserved_history_path() -> PathBuf {
+    Path::new("/tmp").join(PRESERVED_HISTORY_FILE_NAME)
 }
 
 fn load_preserved_history() -> HashMap<MonitorTarget, PreservedData> {
-    let cwd = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(err) => {
-            eprintln!("Failed to resolve current directory for preserved history: {err}");
-            return HashMap::new();
-        }
-    };
-
-    let path = preserved_history_path_from(&cwd);
+    let path = preserved_history_path();
     load_preserved_history_from(&path)
 }
 
@@ -134,15 +126,7 @@ fn load_preserved_history_from(path: &Path) -> HashMap<MonitorTarget, PreservedD
 }
 
 fn persist_preserved_history(cache: &HashMap<MonitorTarget, PreservedData>) {
-    let cwd = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(err) => {
-            eprintln!("Failed to resolve current directory for preserved history: {err}");
-            return;
-        }
-    };
-
-    let path = preserved_history_path_from(&cwd);
+    let path = preserved_history_path();
     if let Err(err) = persist_preserved_history_to(&path, cache) {
         eprintln!("Failed to persist history to {}: {err}", path.display());
     }

@@ -7,7 +7,7 @@ Provide an interactive terminal user interface for app selection, real-time moni
 ## Requirements
 
 ### Requirement: App selection screen
-The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the command working directory when a previously monitored target is selected again. The selector SHALL allow re-entering an already-active target monitor session without discarding in-memory collected data for that target. The selector SHALL also show each row's current monitoring lifecycle state for the current session.
+The system SHALL present a TUI screen listing discovered apps and running CLI processes, with text filtering support, and SHALL restore persisted address history from the fixed `/tmp` directory when a previously monitored target is selected again. The selector SHALL allow re-entering an already-active target monitor session without discarding in-memory collected data for that target. The selector SHALL also show each row's current monitoring lifecycle state for the current session.
 
 #### Scenario: User opens the tool without --pid/--name/--bundle
 - **WHEN** user runs `sudo net-use` without target arguments
@@ -30,11 +30,11 @@ The system SHALL present a TUI screen listing discovered apps and running CLI pr
 - **THEN** system opens that target's monitoring screen using the existing session state and continues collecting without resetting discovered address history
 
 #### Scenario: User reselects a previously monitored target after restart
-- **WHEN** user starts `net-use` in a working directory that contains persisted history and selects a target with saved records
+- **WHEN** user starts `net-use` and persisted history exists in `/tmp` and selects a target with saved records
 - **THEN** system restores that target's previously discovered IPv4/IPv6 masked and raw address lists before appending newly collected results
 
 #### Scenario: Persisted history file is missing or invalid
-- **WHEN** system cannot read or parse the persisted history file in the working directory
+- **WHEN** system cannot read or parse the persisted history file in `/tmp`
 - **THEN** system continues to app selection and monitoring with empty history without crashing
 
 #### Scenario: Selector marks actively monitored targets
@@ -134,7 +134,7 @@ The system SHALL allow the user to copy the current IP list to the system clipbo
 - **THEN** system copies all discovered IPv4 subnets and canonical IPv6 `/64` entries (one per line) to the macOS clipboard
 
 ### Requirement: Navigation between screens
-The system SHALL allow the user to return to the app selection screen from the monitoring screen without implicitly stopping monitoring for the current target, and SHALL persist discovered address history per target to a file in the command working directory for later restoration.
+The system SHALL allow the user to return to the app selection screen from the monitoring screen without implicitly stopping monitoring for the current target, and SHALL persist discovered address history per target to a file in `/tmp` for later restoration.
 
 #### Scenario: User presses Escape during monitoring
 - **WHEN** user presses Esc on the monitoring screen for target A
@@ -153,4 +153,4 @@ The system SHALL exit cleanly when the user presses the quit key.
 
 #### Scenario: User presses Quit key
 - **WHEN** user presses Q
-- **THEN** system stops all active monitoring sessions, persists per-target address history to the working-directory file, restores terminal state, and exits
+- **THEN** system stops all active monitoring sessions, persists per-target address history to `/tmp`, restores terminal state, and exits
