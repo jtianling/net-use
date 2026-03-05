@@ -1,6 +1,6 @@
 [package]
 name = "net-use"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["jtianling <jtianling@gmail.com>"]
 description = "Monitor per-app network connections on macOS via proc_pidfdinfo, with TUI and CLI modes for building firewall whitelists"
