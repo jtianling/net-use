@@ -73,8 +73,7 @@ pub fn list_child_pids(ppid: i32) -> Vec<i32> {
         return Vec::new();
     }
 
-    let actual_count = actual as usize / mem::size_of::<i32>();
-    pids.truncate(actual_count);
+    pids.truncate(actual as usize);
     pids.retain(|&p| p > 0);
     pids
 }
