@@ -14,6 +14,10 @@ macOS 上的应用网络连接监控工具. 通过 `proc_pidfdinfo` 系统调用
 - 支持监控尚未启动的 app, 检测到启动后自动开始采集
 - app 退出后保留数据, 重新出现时累加
 - 一键导出到文件 (`E`) 或复制到剪贴板 (`C`)
+- 暂停/恢复监控 (`P`)
+- 切换子网聚合和原始 IP 显示 (`S`)
+- 切换排序方式: 发现顺序或字母序 (`O`)
+- 跨会话持久化已发现的地址 (默认 `/tmp`, 可通过 `--data-dir` 自定义)
 
 ## 安装
 
@@ -45,6 +49,10 @@ sudo net-use
 
 快捷键:
 
+- `J` / `K` — 向下/向上滚动地址列表
+- `S` — 切换子网聚合和原始 IP 显示
+- `O` — 切换排序方式 (发现顺序/字母序)
+- `P` — 暂停/恢复监控
 - `E` — 导出地址列表到文件
 - `C` — 复制地址列表到剪贴板
 - `Esc` — 返回应用选择
@@ -61,6 +69,9 @@ sudo net-use --name curl --no-tui
 
 # 按 PID 监控
 sudo net-use --pid 1234 --no-tui
+
+# 将历史数据保存到自定义目录
+sudo net-use --data-dir ./my-data
 
 # 输出到文件
 sudo net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt

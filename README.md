@@ -14,6 +14,10 @@ A per-app network connection monitor for macOS. Uses `proc_pidfdinfo` to track a
 - Monitor apps that haven't started yet — collection begins automatically on launch
 - Preserve data after app exit, accumulate on restart
 - One-key export to file (`E`) or copy to clipboard (`C`)
+- Pause/resume monitoring per target (`P`)
+- Toggle between masked (subnet) and raw IP display (`S`)
+- Toggle sort order: discovery time or alphabetical (`O`)
+- Persist discovered addresses across sessions (default `/tmp`, configurable via `--data-dir`)
 
 ## Installation
 
@@ -45,6 +49,10 @@ Launches an app selection screen where you can type to filter, then press Enter 
 
 Keybindings:
 
+- `J` / `K` — Scroll address list down / up
+- `S` — Toggle between masked (subnet) and raw IP view
+- `O` — Toggle sort order (discovery time / alphabetical)
+- `P` — Pause / resume monitoring
 - `E` — Export address list to file
 - `C` — Copy address list to clipboard
 - `Esc` — Return to app selection
@@ -61,6 +69,9 @@ sudo net-use --name curl --no-tui
 
 # Monitor by PID
 sudo net-use --pid 1234 --no-tui
+
+# Save history to a custom directory
+sudo net-use --data-dir ./my-data
 
 # Output to file
 sudo net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt
