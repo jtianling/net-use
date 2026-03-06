@@ -17,7 +17,7 @@ A per-app network connection monitor for macOS. Uses `proc_pidfdinfo` to track a
 - Pause/resume monitoring per target (`P`)
 - Toggle between masked (subnet) and raw IP display (`S`)
 - Toggle sort order: discovery time or alphabetical (`O`)
-- Persist discovered addresses across sessions (default `/tmp`, configurable via `--data-dir`)
+- Persist discovered addresses across sessions (default `/tmp/.net-use-address-history.json`, configurable via `--data-file`)
 
 ## Installation
 
@@ -70,8 +70,8 @@ sudo net-use --name curl --no-tui
 # Monitor by PID
 sudo net-use --pid 1234 --no-tui
 
-# Save history to a custom directory
-sudo net-use --data-dir ./my-data
+# Save history to a custom file
+sudo net-use --data-file ./my-history.json
 
 # Output to file
 sudo net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt

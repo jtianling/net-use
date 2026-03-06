@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::io::{self, Write as _};
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 use std::{cmp::Ordering, str::FromStr};
@@ -66,6 +67,7 @@ impl AddressOrderMode {
 
 pub struct MonitorView {
     app_info: AppInfo,
+    data_file_display: Option<String>,
     processes: Vec<ProcessInfo>,
     ipv4_masked_subnets: Vec<String>,
     ipv4_raw_addresses: Vec<String>,
@@ -91,6 +93,7 @@ impl MonitorView {
     pub fn new(app_info: AppInfo) -> Self {
         Self {
             app_info,
+            data_file_display: None,
             processes: Vec::new(),
             ipv4_masked_subnets: Vec::new(),
             ipv4_raw_addresses: Vec::new(),
@@ -179,6 +182,10 @@ impl MonitorView {
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn set_data_file_display(&mut self, path: &Path) {
+        self.data_file_display = Some(path.display().to_string());
     }
 
     pub fn drain_events(&mut self, rx: &mut mpsc::UnboundedReceiver<MonitorEvent>) {
@@ -583,6 +590,12 @@ impl MonitorView {
             .map(|(msg, _)| format!("  {msg}"))
             .unwrap_or_default();
 
+        let data_file_info = self
+            .data_file_display
+            .as_deref()
+            .map(|p| format!(" │ Data: {p}"))
+            .unwrap_or_default();
+
         let line1 = Line::from(vec![
             Span::styled(
                 format!(" Total: {total} "),
@@ -590,9 +603,10 @@ impl MonitorView {
             ),
             Span::styled(
                 format!(
-                    "│ {stability} │ Address view: {} │ Order: {}",
+                    "│ {stability} │ Address view: {} │ Order: {}{}",
                     self.address_display_mode.label(),
-                    self.address_order_mode.label()
+                    self.address_order_mode.label(),
+                    data_file_info
                 ),
                 Style::default().fg(Color::DarkGray),
             ),

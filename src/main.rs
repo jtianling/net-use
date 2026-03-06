@@ -25,7 +25,7 @@ use crate::tui::app_selector::AppSelector;
 use crate::tui::monitor_view::{MonitorAction, MonitorView};
 use crate::types::{AppError, AppInfo, AppMonitorState, MonitorEvent, MonitorTarget};
 
-const PRESERVED_HISTORY_FILE_NAME: &str = ".net-use-address-history.json";
+const DEFAULT_DATA_FILE: &str = "/tmp/.net-use-address-history.json";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -45,8 +45,8 @@ pub struct Cli {
     #[arg(long, help = "Disable TUI, output to stdout")]
     pub no_tui: bool,
 
-    #[arg(long, help = "Directory for persisted address history (default: /tmp)")]
-    pub data_dir: Option<PathBuf>,
+    #[arg(long, help = "File path for persisted address history")]
+    pub data_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -88,13 +88,8 @@ struct PreservedStoreEntry {
     data: PreservedData,
 }
 
-fn preserved_history_path(data_dir: &Path) -> PathBuf {
-    data_dir.join(PRESERVED_HISTORY_FILE_NAME)
-}
-
-fn load_preserved_history(data_dir: &Path) -> HashMap<MonitorTarget, PreservedData> {
-    let path = preserved_history_path(data_dir);
-    load_preserved_history_from(&path)
+fn load_preserved_history(data_file: &Path) -> HashMap<MonitorTarget, PreservedData> {
+    load_preserved_history_from(data_file)
 }
 
 fn load_preserved_history_from(path: &Path) -> HashMap<MonitorTarget, PreservedData> {
@@ -128,10 +123,9 @@ fn load_preserved_history_from(path: &Path) -> HashMap<MonitorTarget, PreservedD
         .collect()
 }
 
-fn persist_preserved_history(data_dir: &Path, cache: &HashMap<MonitorTarget, PreservedData>) {
-    let path = preserved_history_path(data_dir);
-    if let Err(err) = persist_preserved_history_to(&path, cache) {
-        eprintln!("Failed to persist history to {}: {err}", path.display());
+fn persist_preserved_history(data_file: &Path, cache: &HashMap<MonitorTarget, PreservedData>) {
+    if let Err(err) = persist_preserved_history_to(data_file, cache) {
+        eprintln!("Failed to persist history to {}: {err}", data_file.display());
     }
 }
 
@@ -190,7 +184,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     check_root();
 
-    let data_dir = cli.data_dir.clone().unwrap_or_else(|| PathBuf::from("/tmp"));
+    let data_file = cli
+        .data_file
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_FILE));
 
     if cli.no_tui {
         let target = match cli_to_target(&cli) {
@@ -206,7 +203,7 @@ async fn main() -> Result<()> {
         if let Some(ref t) = target {
             validate_target(t)?;
         }
-        run_tui_mode(target, &data_dir).await
+        run_tui_mode(target, &data_file).await
     }
 }
 
@@ -245,14 +242,14 @@ async fn run_cli_mode(target: MonitorTarget) -> Result<()> {
     Ok(())
 }
 
-async fn run_tui_mode(initial_target: Option<MonitorTarget>, data_dir: &Path) -> Result<()> {
+async fn run_tui_mode(initial_target: Option<MonitorTarget>, data_file: &Path) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let result = tui_main_loop(&mut terminal, initial_target, data_dir).await;
+    let result = tui_main_loop(&mut terminal, initial_target, data_file).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -273,8 +270,9 @@ struct MonitorSession {
 }
 
 impl MonitorSession {
-    fn new(target: &MonitorTarget, preserved: Option<&PreservedData>) -> Self {
+    fn new(target: &MonitorTarget, preserved: Option<&PreservedData>, data_file: &Path) -> Self {
         let mut view = MonitorView::new(target_to_app_info(target));
+        view.set_data_file_display(data_file);
         if let Some(saved) = preserved {
             saved.restore_into(&mut view);
         }
@@ -328,10 +326,11 @@ fn ensure_session_exists<'a>(
     sessions: &'a mut HashMap<MonitorTarget, MonitorSession>,
     preserved_by_target: &HashMap<MonitorTarget, PreservedData>,
     target: &MonitorTarget,
+    data_file: &Path,
 ) -> &'a mut MonitorSession {
     sessions
         .entry(target.clone())
-        .or_insert_with(|| MonitorSession::new(target, preserved_by_target.get(target)))
+        .or_insert_with(|| MonitorSession::new(target, preserved_by_target.get(target), data_file))
 }
 
 fn drain_all_sessions(sessions: &mut HashMap<MonitorTarget, MonitorSession>) {
@@ -359,10 +358,10 @@ async fn shutdown_all_sessions(sessions: &mut HashMap<MonitorTarget, MonitorSess
 async fn tui_main_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
     initial_target: Option<MonitorTarget>,
-    data_dir: &Path,
+    data_file: &Path,
 ) -> Result<()> {
     let mut preserved_by_target: HashMap<MonitorTarget, PreservedData> =
-        load_preserved_history(data_dir);
+        load_preserved_history(data_file);
     let mut sessions: HashMap<MonitorTarget, MonitorSession> = HashMap::new();
 
     let mut target = match initial_target {
@@ -373,7 +372,8 @@ async fn tui_main_loop(
 
     loop {
         let mut active_session = {
-            let session = ensure_session_exists(&mut sessions, &preserved_by_target, &target);
+            let session =
+                ensure_session_exists(&mut sessions, &preserved_by_target, &target, data_file);
             if resume_on_enter {
                 session.ensure_running(&target);
             }
@@ -396,13 +396,13 @@ async fn tui_main_loop(
                 sessions.insert(target.clone(), active_session);
                 shutdown_all_sessions(&mut sessions).await;
                 sync_preserved_cache(&mut sessions, &mut preserved_by_target);
-                persist_preserved_history(data_dir, &preserved_by_target);
+                persist_preserved_history(data_file, &preserved_by_target);
                 return Ok(());
             }
             MonitorAction::Back => {
                 sessions.insert(target.clone(), active_session);
                 sync_preserved_cache(&mut sessions, &mut preserved_by_target);
-                persist_preserved_history(data_dir, &preserved_by_target);
+                persist_preserved_history(data_file, &preserved_by_target);
                 target = select_app(terminal, &mut sessions)?;
                 resume_on_enter = true;
             }
@@ -410,7 +410,7 @@ async fn tui_main_loop(
                 active_session.pause().await;
                 sessions.insert(target.clone(), active_session);
                 sync_preserved_cache(&mut sessions, &mut preserved_by_target);
-                persist_preserved_history(data_dir, &preserved_by_target);
+                persist_preserved_history(data_file, &preserved_by_target);
                 resume_on_enter = false;
             }
             MonitorAction::ResumeTarget => {

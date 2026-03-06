@@ -17,7 +17,7 @@ macOS 上的应用网络连接监控工具. 通过 `proc_pidfdinfo` 系统调用
 - 暂停/恢复监控 (`P`)
 - 切换子网聚合和原始 IP 显示 (`S`)
 - 切换排序方式: 发现顺序或字母序 (`O`)
-- 跨会话持久化已发现的地址 (默认 `/tmp`, 可通过 `--data-dir` 自定义)
+- 跨会话持久化已发现的地址 (默认 `/tmp/.net-use-address-history.json`, 可通过 `--data-file` 自定义)
 
 ## 安装
 
@@ -70,8 +70,8 @@ sudo net-use --name curl --no-tui
 # 按 PID 监控
 sudo net-use --pid 1234 --no-tui
 
-# 将历史数据保存到自定义目录
-sudo net-use --data-dir ./my-data
+# 将历史数据保存到自定义文件
+sudo net-use --data-file ./my-history.json
 
 # 输出到文件
 sudo net-use --bundle com.google.Chrome --no-tui > chrome-ips.txt
